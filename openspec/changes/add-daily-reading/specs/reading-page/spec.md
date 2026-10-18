@@ -42,6 +42,11 @@ The page SHALL open an item's link only when the stored link is an absolute `htt
 
 The page's backend routes SHALL be served only through Hermes' plugin API for the active profile, with Hermes' own authentication, and only while the plugin is enabled. No route takes a file path: digests are addressed by date (`YYYY-MM-DD`) and items by their id in that digest.
 
+#### Scenario: Unauthenticated, disabled or other profile
+
+- **WHEN** a route is called without Hermes' authentication, while the plugin is disabled, or from another profile's server
+- **THEN** it is refused (or not mounted), and no digest, audio or action of this profile is reached
+
 #### Scenario: Malformed digest date
 
 - **WHEN** a route is called with digest `../../etc` or `2026-13-45`
@@ -149,7 +154,7 @@ Each confirmed idea SHALL be an attempt recorded before acting, with one outcome
 
 ### Requirement: Article idea targets
 
-With `ideas.target: file`, a confirmed idea SHALL be appended to `ideas.file` (failure to write is "failed"). With `ideas.target: command`, the argument list `ideas.command` runs without a shell, each `{title}`, `{url}`, `{summary}`, `{sources}` replaced inside its own argument, with a 30-second timeout. Exit 0 is "sent" and keeps the first output line; another exit is "failed"; a timeout is "unknown".
+With `ideas.target: file`, a confirmed idea SHALL be appended to `ideas.file` (a write error is "failed"). With `command`, the list `ideas.command` runs without a shell, each `{title}`, `{url}`, `{summary}`, `{sources}` replaced inside its own argument, 30-second timeout. Exit 0 is "sent" (first output line kept); another exit, or a program that cannot start, is "failed"; a timeout is "unknown".
 
 #### Scenario: Command target succeeds
 
@@ -174,6 +179,18 @@ With `ideas.target: file`, a confirmed idea SHALL be appended to `ideas.file` (f
 - **GIVEN** `ideas.target` is `file`
 - **WHEN** the user confirms an idea, once with a writable `ideas.file` and once with an unwritable one
 - **THEN** the first appends one entry and is "sent"; the second shows the error and is "failed"
+
+#### Scenario: Command cannot start
+
+- **GIVEN** `ideas.command`'s program does not exist or is not executable
+- **WHEN** the user confirms an idea
+- **THEN** the page shows that the program could not start, and the item's state is "failed"
+
+#### Scenario: File target without a file
+
+- **GIVEN** `ideas.target` is `file` and `ideas.file` is empty
+- **WHEN** the user opens the page
+- **THEN** the action is disabled with a hint naming `ideas.file`
 
 #### Scenario: Invalid command setting
 

@@ -60,15 +60,17 @@ See proposal.md for the why. Facts that shape the approach, observed in the Herm
 ### D6. Desktop page through the plugin backend
 
 - **Chosen:** a Desktop page (`desktop/plugin.js`) that only displays. It calls `plugin_api.py` routes that share the plugin's Python modules (digest, feeds, actions). No route takes a path. The audio route reads the file name from the digest record and serves it only as a regular file inside that digest's folder. Links open through the host's external-browser call, and only for http(s).
-- **Digests are written to a temporary folder in the same parent and renamed into place** (a forced run renames the old folder aside first and deletes it only after the swap). Readers see either the old digest or the new one, never a half-written one.
-  - The shown-items records are then replaced in one SQLite transaction tagged with the digest's generation id.
-  - Every run first reconciles today's records with the generation of today's stored digest, which covers a crash between the rename and the transaction.
+- **Publication with one commit point.** Each build writes a new generation folder `digests/<date>/<generation>/` and inserts its shown-items records tagged with that generation. Then it atomically replaces the small pointer file `digests/<date>/current` (write temp, `fsync`, `rename`). That rename is the commit point; readers always follow the pointer.
+  - A record counts only if its generation is the current one for its date, or if it was retired by retention. So the replaced digest's records stop counting at the same instant, with no second step.
+  - Retention first marks a digest's records retired (one transaction), then deletes the folder.
+  - Every run starts by deleting, for any date, generation folders the pointer does not name and records whose generation is neither current nor retired. That removes the leftovers of a stopped run whenever it happened.
 - **Rejected:** keeping state in browser storage, the way rss-reader does, because the cron run could not see it.
 
 ## Risks / Trade-offs
 
 - **Assumption, verified in task 1.2:** `ctx.llm` and `ctx.dispatch_tool("text_to_speech")` work from a tool handler during a cron run and from a CLI command. → If a context lacks them, that path reports the missing step, and the digest still stores items, as the spec requires.
-- **The summary model sees feed text**, so a hostile feed can try prompt injection. → Text is fenced as untrusted data, the output is only stored and spoken, and the run has no tools of its own.
+- **The summary model sees feed text**, so a hostile feed can try prompt injection. → Text is fenced as untrusted data, the output is only stored, shown as text and spoken, and the run has no tools of its own. The result returned to the tool caller carries no feed or model text, so a cron agent never reads it either.
+- **Audio length depends on the TTS voice's real speed.** → `words_per_minute` is configurable; the acceptance run measures the real duration and tunes the owner's value.
 - **Some feeds block plain clients.** → A fixed, honest User-Agent naming the plugin and its version. No browser impersonation, which rss-reader offers.
 - **Comments in `feeds.yaml` are lost on edit.** → Documented. The CLI and the page are the editing paths that preserve everything else.
 

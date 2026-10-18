@@ -26,7 +26,7 @@ The feed list SHALL be one YAML file at the path in setting `feeds_file` (defaul
 
 - **GIVEN** the feeds file is not valid YAML, or its top level has no `feeds` list
 - **WHEN** the feed list is loaded
-- **THEN** loading fails with an error naming the file and the problem, and no edit writes to that file until it is fixed
+- **THEN** loading fails with an error naming the file and the problem, no edit writes to that file until it is fixed, and a digest run fails without building a digest and leaves any existing digest as it was
 
 ### Requirement: Entry validation
 
@@ -46,12 +46,12 @@ An entry SHALL be valid only when `url` is an absolute `http` or `https` URL wit
 
 ### Requirement: Changes apply on the next run
 
-The feed list SHALL be read from the file at the start of every digest run and every list or edit operation, so a change made by any means applies to the next run without restarting Hermes. Paused feeds are listed but never fetched.
+The feed list SHALL be read from the file whenever a digest is built and at every list or edit operation, so a change made by any means applies to the next digest built (the next day's, or a forced run) without restarting Hermes. Paused feeds are listed but never fetched.
 
 #### Scenario: Edit between runs
 
-- **GIVEN** a feed was added to the file with a text editor after the previous run
-- **WHEN** the next digest run starts, with no restart in between
+- **GIVEN** a feed was added to the file with a text editor after today's digest was built
+- **WHEN** a forced run builds a new digest, with no restart in between
 - **THEN** that feed is fetched in the run
 
 #### Scenario: Paused feed is not fetched
