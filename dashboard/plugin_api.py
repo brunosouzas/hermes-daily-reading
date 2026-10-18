@@ -43,7 +43,7 @@ MIME = {".wav": "audio/wav", ".mp3": "audio/mpeg", ".ogg": "audio/ogg", ".opus":
         ".flac": "audio/flac", ".aac": "audio/aac"}
 
 router = APIRouter()
-_page_run: Dict[str, Any] = {"running": False, "last": None}
+_page_run: Dict[str, Any] = {"running": False, "last": None, "finished": 0}
 _page_lock = threading.Lock()
 
 # Seams for tests: how the backend gets settings, the model and the TTS dispatcher.
@@ -245,10 +245,12 @@ def start_run(payload: Optional[Dict[str, Any]] = Body(None)) -> Dict[str, Any]:
             dispatch = dispatch_provider() if dispatch_provider is not None else host.tool_dispatch(None)
             extra = {"fetcher": fetcher_provider()} if fetcher_provider is not None else {}
             result = digest_mod.run(settings, force=force, wait=0, call_model=call_model, dispatch=dispatch, **extra)
-            _page_run["last"] = {"status": result.status, "date": result.date, "message": result.message}
+            _page_run["last"] = {"status": result.status, "date": result.date, "message": result.message,
+                                 "id": _page_run["finished"] + 1}
         except Exception as exc:  # pragma: no cover - reported to the page
-            _page_run["last"] = {"status": "error", "message": type(exc).__name__}
+            _page_run["last"] = {"status": "error", "message": type(exc).__name__, "id": _page_run["finished"] + 1}
         finally:
+            _page_run["finished"] += 1
             _page_run["running"] = False
 
     threading.Thread(target=work, name="daily-reading-page-run", daemon=True).start()

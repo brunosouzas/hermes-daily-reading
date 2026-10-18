@@ -54,6 +54,8 @@ CREATE TABLE IF NOT EXISTS previews (
 
 
 GENERATION_RE = re.compile(r"^g[0-9a-f]{16}$")
+# A replaced or stopped generation is deleted only once it is this old, so a page still reading it can finish.
+READER_GRACE_SECONDS = 600.0
 
 
 def valid_date(value: object) -> bool:
@@ -210,6 +212,9 @@ class Store:
                 for child in day_dir.iterdir():
                     if child.name == "current" or child.name == current:
                         continue
+                    with contextlib.suppress(OSError):
+                        if time.time() - child.lstat().st_mtime < READER_GRACE_SECONDS:
+                            continue
                     if child.is_dir() and not child.is_symlink():
                         shutil.rmtree(child, ignore_errors=True)
                     else:

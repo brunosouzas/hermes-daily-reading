@@ -153,3 +153,9 @@ test('Feeds page edits a feed and pauses another', () => {
   const rejected = render(FeedsView({ feeds, error: 'url must start with http:// or https://' }))
   assert.match(textOf(byRole(rejected, 'feeds-error')), /http/)
 })
+
+test('Run notice', () => {
+  assert.equal(page.runNoticeFor({ status: 'built', message: 'Daily reading for 2026-10-19: 8 items. Summary: written.' }), 'Daily reading for 2026-10-19: 8 items.')
+  assert.equal(page.runNoticeFor({ status: 'error', message: 'OSError' }), 'Run error: OSError')
+  assert.equal(page.runNoticeFor(null), '')
+})

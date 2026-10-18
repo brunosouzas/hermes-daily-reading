@@ -79,6 +79,12 @@ function hostOf (url) {
 
 const IDEA_LABEL = { sent: 'Idea sent', failed: 'Idea failed', unknown: 'Idea outcome unknown', running: 'Sending idea…' }
 
+export function runNoticeFor (last) {
+  if (!last) return ''
+  if (last.status === 'built' || last.status === 'existing') return text(last.message).split('. ')[0] + '.'
+  return `Run ${text(last.status)}: ${text(last.message)}`
+}
+
 // ── pure views ─────────────────────────────────────────────────────────────
 export function ItemCard ({ item, actions, busy = {}, error = '', note = null, onToggleRead, onFragment, onNote, onIdea, onOpen }) {
   const link = safeLink(item.link)
@@ -307,16 +313,19 @@ function DailyReadingPage () {
   const list = useQuery({ queryKey: [ID, 'digests'], queryFn: () => rest('/digests'), refetchInterval: 15000 })
   const runState = useQuery({ queryKey: [ID, 'run'], queryFn: () => rest('/run'), refetchInterval: polling ? 2000 : false })
   const running = !!runState.data?.running
-  const wasRunning = useRef(false)
+  const lastRun = runState.data?.last || null
+  const seenRun = useRef(undefined)
   useEffect(() => {
-    if (wasRunning.current && !running) {
+    // A run is finished when the backend reports a new completion id (a fast run may never be seen running).
+    const id = lastRun?.id ?? null
+    if (seenRun.current === undefined) { seenRun.current = id; return }
+    if (id !== seenRun.current) {
+      seenRun.current = id
       setPolling(false)
-      const last = runState.data?.last
-      if (last) setRunNotice(last.status === 'built' || last.status === 'existing' ? text(last.message).split('.')[0] + '.' : `Run ${text(last.status)}: ${text(last.message)}`)
+      setRunNotice(runNoticeFor(lastRun))
       queryClient.invalidateQueries({ queryKey: [ID] })
     }
-    wasRunning.current = running
-  }, [running])
+  }, [lastRun?.id])
   const day = selected || list.data?.latest || null
   const digest = useQuery({ queryKey: [ID, 'digest', day], queryFn: () => rest(`/digest/${day}`), enabled: !!day })
   const feeds = useQuery({ queryKey: [ID, 'feeds'], queryFn: () => rest('/feeds'), enabled: view === 'feeds' })
@@ -357,7 +366,7 @@ function DailyReadingPage () {
     try {
       const out = await rest('/run', { method: 'POST', body: { force } })
       setRunNotice(out.status === 'in_progress' ? 'A run is already in progress.' : 'Building the digest…')
-      if (out.started) { wasRunning.current = true; setPolling(true) }
+      if (out.started) setPolling(true)
     } catch (e) { setRunNotice(errText(e)) }
     refresh()
   }

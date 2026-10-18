@@ -141,3 +141,14 @@ def test_audio_file_vanishes_before_it_is_stored(tmp_path):
     result = dr_digest.run(settings, call_model=RecordingModel(), dispatch=vanishing, fetcher=feeds, now=NOW)
     assert result.status == "built" and len(result.digest["items"]) == 2
     assert result.digest["audio"]["failed"] and result.digest["audio"]["files"] == []
+
+
+def test_one_long_paragraph_is_split():
+    from daily_reading.dr_summary import SEGMENT_CHARS, audio_segments
+
+    paragraph = " ".join(f"Sentence number {n} talks about integration and agents." for n in range(60))  # ~3400 chars
+    unbroken = "x" * 4000
+    for text in (paragraph, f"Intro.\n\n{paragraph}\n\nEnd.", unbroken):
+        segments = audio_segments(text)
+        assert all(0 < len(s) <= SEGMENT_CHARS for s in segments)
+        assert "".join(segments).replace(" ", "").replace("\n", "") == text.replace(" ", "").replace("\n", "")

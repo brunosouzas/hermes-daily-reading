@@ -133,11 +133,14 @@ def audio_segments(text: str, limit: int = SEGMENT_CHARS) -> List[str]:
 
     Hermes refuses a TTS file over its per-file delivery limit (10 MiB by default), and an
     uncompressed voice reaches that in about four minutes, so the text goes in short pieces.
-    A paragraph longer than ``limit`` is its own segment (Hermes splits it again if needed).
+    A paragraph longer than ``limit`` is split at sentence ends, then at spaces, then hard.
     """
     segments: List[str] = []
     current = ""
+    pieces: List[str] = []
     for paragraph in [p.strip() for p in text.split("\n\n") if p.strip()]:
+        pieces.extend(_split_long(paragraph, limit))
+    for paragraph in pieces:
         candidate = f"{current}\n\n{paragraph}" if current else paragraph
         if current and len(candidate) > limit:
             segments.append(current)
@@ -147,6 +150,34 @@ def audio_segments(text: str, limit: int = SEGMENT_CHARS) -> List[str]:
     if current:
         segments.append(current)
     return segments
+
+
+_SENTENCE_END = re.compile(r"(?<=[.!?…])\s+")
+
+
+def _split_long(paragraph: str, limit: int) -> List[str]:
+    if len(paragraph) <= limit:
+        return [paragraph]
+    out: List[str] = []
+    current = ""
+    for sentence in _SENTENCE_END.split(paragraph):
+        words = [sentence] if len(sentence) <= limit else sentence.split(" ")
+        for word in words:
+            while len(word) > limit:  # a single run of text with no break: hard slice
+                if current:
+                    out.append(current)
+                    current = ""
+                out.append(word[:limit])
+                word = word[limit:]
+            candidate = f"{current} {word}" if current else word
+            if len(candidate) > limit:
+                out.append(current)
+                current = word
+            else:
+                current = candidate
+    if current:
+        out.append(current)
+    return [piece for piece in out if piece]
 
 
 def _tts_error(result: Any) -> str:

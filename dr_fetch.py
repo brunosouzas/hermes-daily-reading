@@ -134,7 +134,9 @@ class _Watchdog:
 
     def _fire(self) -> None:
         self.fired = True
-        sock = getattr(self._conn, "sock", None)
+        # The connection hands its socket to the response (and clears ``conn.sock``) with
+        # "Connection: close", so keep the raw socket the connection reported.
+        sock = getattr(self._conn, "raw_sock", None) or getattr(self._conn, "sock", None)
         if sock is not None:
             try:
                 sock.shutdown(socket.SHUT_RDWR)
@@ -151,6 +153,7 @@ class _PinnedHTTPConnection(http.client.HTTPConnection):
         super().__init__(host, port, timeout=timeout)
         self._addresses = addresses
         self.deadline = time.monotonic() + timeout
+        self.raw_sock: Optional[socket.socket] = None
 
     def connect(self) -> None:
         last: Exception = OSError("no address")
@@ -160,6 +163,7 @@ class _PinnedHTTPConnection(http.client.HTTPConnection):
                 raise socket.timeout("deadline")
             try:
                 self.sock = _dial(ip, self.port, left)
+                self.raw_sock = self.sock
                 return
             except OSError as exc:
                 last = exc
@@ -240,6 +244,9 @@ def fetch(url: str, *, timeout: float, max_bytes: int, user_agent: str,
                 if conn.sock is not None:
                     conn.sock.settimeout(left)
                 chunk = response.read1(65536)
+                if watchdog.fired:  # the watchdog closed the socket: what we have is cut short
+                    conn.close()
+                    raise FetchError("timeout")
                 if not chunk:
                     break
                 size += len(chunk)

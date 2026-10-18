@@ -120,3 +120,12 @@ def test_theme_left_out_of_a_valid_entry():
     model = RecordingModel(rank=answer({"All about A": {"B": 2}}))
     [ranked] = rank([item], THEMES, max_candidates=60, max_excerpt=1200, call_model=model).items
     assert ranked.scores == {"A": 0, "B": 2} and not ranked.by_keyword
+
+
+def test_candidates_not_sent_still_compete():
+    items = [cand(i, title=f"item {i}", age=1 + i / 100) for i in range(8)]
+    model = RecordingModel(rank=answer({f"item {i}": {"A": 1} for i in range(8)}))
+    outcome = rank(items, THEMES, max_candidates=5, max_excerpt=1200, call_model=model)
+    assert len(outcome.items) == 8
+    assert sum(1 for r in outcome.items if r.by_keyword) == 3
+    assert len(ids_in_request(model.calls[0]["input"])) == 5

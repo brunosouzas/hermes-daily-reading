@@ -196,3 +196,30 @@ def test_slow_resolver_hits_the_deadline(server, monkeypatch):
     with pytest.raises(dr_fetch.FetchError, match="timeout"):
         _fetch("http://slow-dns.test/feed", timeout=1)
     assert time.monotonic() - started < 2
+
+
+def test_slow_chunked_body_hits_the_deadline(server):
+    def chunked(handler):
+        handler.wfile.write(b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n")
+        handler.wfile.flush()
+        for _ in range(40):
+            handler.wfile.write(b"1")  # a chunk-size line that never ends
+            handler.wfile.flush()
+            time.sleep(0.2)
+    server["routes"]["/chunked"] = chunked
+    started = time.monotonic()
+    with pytest.raises(dr_fetch.FetchError) as error:
+        _fetch(server["base"] + "/chunked", timeout=1)
+    assert error.value.reason == "timeout" and time.monotonic() - started < 2.5
+
+
+def test_deadline_covers_several_addresses(server, monkeypatch):
+    server["names"]["multi.test"] = [PUBLIC_IP, "93.184.216.35"]
+    def black_hole(ip, port, timeout):
+        time.sleep(timeout)
+        raise socket.timeout("no answer")
+    monkeypatch.setattr(dr_fetch, "_dial", black_hole)
+    started = time.monotonic()
+    with pytest.raises(dr_fetch.FetchError, match="timeout"):
+        _fetch("http://multi.test/feed", timeout=1)
+    assert time.monotonic() - started < 1.8

@@ -79,13 +79,13 @@ def _one_line(text: str, limit: int = 2000) -> str:
     return " ".join((text or "").split())[:limit]
 
 
-def _entry(item: Dict[str, Any], day: str, note: str, marker: str) -> str:
+def _entry(item: Dict[str, Any], day: str, note: str, marker: str, label: str = "Note") -> str:
     lines = [f"## {_one_line(item.get('title') or '(untitled)', 300)}", "",
              f"- Link: {item.get('link') or '(no link)'}",
              f"- Sources: {', '.join(item.get('sources') or [])}",
              f"- Digest: {day}"]
     if note:
-        lines.append(f"- Note: {_one_line(note)}")
+        lines.append(f"- {label}: {_one_line(note)}")
     lines += [f"<!-- {marker} -->", ""]
     return "\n".join(lines) + "\n"
 
@@ -171,9 +171,10 @@ def settle_interrupted(store: Store) -> None:
 
 
 def _last_attempt(conn, day: str, item_id: str) -> str:
-    row = conn.execute("SELECT attempt FROM idea_attempts WHERE date = ? AND item_id = ? ORDER BY started DESC LIMIT 1",
+    """Identity and state of the item's latest attempt: a preview is valid only while both are unchanged."""
+    row = conn.execute("SELECT attempt, state FROM idea_attempts WHERE date = ? AND item_id = ? ORDER BY started DESC LIMIT 1",
                        (day, item_id)).fetchone()
-    return row[0] if row else ""
+    return f"{row[0]}:{row[1]}" if row else ""
 
 
 def idea_state(store: Store, day: str, item_id: str) -> Optional[Dict[str, Any]]:
@@ -200,7 +201,9 @@ def preview_idea(settings: Settings, store: Store, day: str, item_id: str) -> Di
                      (token, day, item_id, generation, _hash(payload, _target(settings), last), time.time()))
     previous = idea_state(store, day, item_id)
     warning = ""
-    if previous and previous["state"] in ("sent", "unknown"):
+    if previous and previous["state"] == "running":
+        warning = "An attempt for this item is in progress; wait for it to finish, then ask for a new preview."
+    elif previous and previous["state"] in ("sent", "unknown"):
         when = time.strftime("%Y-%m-%d %H:%M", time.localtime(previous["started"]))
         warning = (f"Already sent on {when}; confirming may create a duplicate." if previous["state"] == "sent"
                    else f"An attempt on {when} has an unknown outcome; check the target first, confirming may create a duplicate.")
@@ -266,7 +269,7 @@ def _run_target(settings: Settings, item: Dict[str, Any], day: str, payload: Dic
     if ideas.target == "file":
         path = Path(ideas.file)
         marker = f"daily-reading:idea:{day}:{item.get('id')}:{secrets.token_hex(4)}"
-        text = _entry(item, day, payload["summary"], marker)
+        text = _entry(item, day, payload["summary"], marker, label="Summary")
         try:
             with _file_lock(path.parent):
                 _append_once(path, marker, text)

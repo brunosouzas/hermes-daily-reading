@@ -159,6 +159,13 @@ def rank(candidates: Sequence[Candidate], themes: Sequence[Theme], *, max_candid
             keyword_count += 1
         ranked.append(Ranked(candidate, scores, total(scores, themes),
                              [t.name for t in themes if scores.get(t.name, 0) >= 2], by_keyword))
+    sent = {id(c) for c in chosen}
+    for candidate in candidates:  # not sent to the model: scored by keyword, still eligible
+        if id(candidate) not in sent:
+            scores = keyword_scores(candidate, themes)
+            keyword_count += 1
+            ranked.append(Ranked(candidate, scores, total(scores, themes),
+                                 [t.name for t in themes if scores.get(t.name, 0) >= 2], True))
     ranked.sort(key=lambda r: (-r.total, newest_first_key(r.candidate)))
     notes = []
     if outcome_mode == "model" and keyword_count:

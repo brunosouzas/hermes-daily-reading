@@ -11,7 +11,7 @@ from datetime import timedelta
 
 import pytest
 
-from daily_reading import dr_digest
+from daily_reading import dr_digest, dr_store
 from daily_reading.dr_fetch import FetchError
 from daily_reading.dr_store import Store
 from helpers import NOW, FakeFeeds, RecordingModel, RecordingTTS, days_ago, make_settings, rss, write_feeds
@@ -20,6 +20,13 @@ from helpers import NOW, FakeFeeds, RecordingModel, RecordingTTS, days_ago, make
 def feed_body(prefix, count=2, age=0.5):
     return rss([{"title": f"{prefix} story {i}", "link": f"https://{prefix}.com/{i}", "date": days_ago(age + i / 100),
                  "summary": f"{prefix} summary {i}"} for i in range(count)])
+
+
+@pytest.fixture(autouse=True)
+def no_reader_grace(monkeypatch, request):
+    """Most tests check cleanup right away; the grace test keeps the real value."""
+    if "keep_grace" not in request.keywords:
+        monkeypatch.setattr(dr_store, "READER_GRACE_SECONDS", 0.0)
 
 
 @pytest.fixture
@@ -258,3 +265,14 @@ def test_run_with_a_malformed_feeds_file(env):
     result = run(settings, feeds, force=True, now=NOW + timedelta(hours=1))
     assert result.status == "error" and "feeds.yaml" in result.message
     assert Store(settings.data_dir).load(first.date)["generation"] == first.digest["generation"]
+
+
+
+@pytest.mark.keep_grace
+def test_replaced_digest_stays_while_a_page_may_read_it(env):
+    settings, feeds = env
+    first = run(settings, feeds)
+    run(settings, feeds, force=True, now=NOW + timedelta(hours=1))
+    run(settings, feeds, force=True, now=NOW + timedelta(hours=2))  # its recovery runs within the grace period
+    store = Store(settings.data_dir)
+    assert (store.digests / first.date / first.digest["generation"] / "digest.json").exists()

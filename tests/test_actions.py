@@ -75,7 +75,8 @@ def test_send_an_idea_to_a_file(page):
     ideas = page["tmp"] / "ideas" / "ideas.md"
     page["box"]["values"]["ideas"] = {"target": "file", "file": str(ideas)}
     assert confirm(page, preview(page).json()["token"]).json()["state"] == "sent"
-    assert "## Story 0 bold" in ideas.read_text()
+    text = ideas.read_text()
+    assert "## Story 0 bold" in text and "- Summary: Paragraph 1." in text
 
 
 def test_preview_cancelled(page):
@@ -277,3 +278,18 @@ def test_nul_in_an_argument(page):
     result = confirm(page, preview(page).json()["token"]).json()
     assert result == {"state": "failed", "output": "an argument contains a NUL character"}
     assert get_digest(page)["items"][0]["idea"]["state"] == "failed"
+
+
+def test_preview_made_while_an_attempt_runs_goes_stale(page):
+    log = _idea_command(page, RECORD + "\ntime.sleep(1.5)")
+    first = preview(page).json()
+    results = []
+    thread = threading.Thread(target=lambda: results.append(confirm(page, first["token"]).json()))
+    thread.start()
+    time.sleep(0.7)
+    during = preview(page).json()
+    assert "in progress" in during["warning"]
+    thread.join()
+    assert results[0]["state"] == "sent"
+    assert confirm(page, during["token"]).json()["detail"]["code"] == "stale"
+    assert len(log.read_text().splitlines()) == 1
