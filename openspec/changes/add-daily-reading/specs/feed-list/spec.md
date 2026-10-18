@@ -2,7 +2,7 @@
 
 ## Purpose
 
-The user's list of feeds for the daily reading: where it lives, what a valid entry is, and every way to change it (Desktop page, CLI, agent tool, text editor, OPML), with the same validation everywhere.
+The user's list of feeds for the daily reading: where it lives, what a valid entry is, and every way to change it (Desktop page, CLI, agent tool, text editor), with the same validation everywhere.
 
 ## ADDED Requirements
 
@@ -26,7 +26,7 @@ The feed list SHALL be one YAML file at the path in setting `feeds_file` (defaul
 
 - **GIVEN** the feeds file is not valid YAML, or its top level has no `feeds` list
 - **WHEN** the feed list is loaded
-- **THEN** loading fails with an error naming the file and the problem, and no edit command writes to that file until it is fixed
+- **THEN** loading fails with an error naming the file and the problem, and no edit writes to that file until it is fixed
 
 ### Requirement: Entry validation
 
@@ -34,9 +34,9 @@ An entry SHALL be valid only when `url` is an absolute `http` or `https` URL wit
 
 #### Scenario: Invalid entries are skipped and reported
 
-- **GIVEN** entries with urls `ftp://x/feed`, `https://user:pw@example.com/feed`, `not a url` and `https://example.com/feed`
+- **GIVEN** entries with urls `ftp://x/feed`, `https://user:pw@example.com/feed`, `not a url` and `https://example.com/feed`, and one entry with `paused: "yes"`
 - **WHEN** the feed list is loaded
-- **THEN** only `https://example.com/feed` is returned, and the report lists the other three with their position and reason
+- **THEN** only `https://example.com/feed` is returned, and the report lists the other four with their position and reason
 
 #### Scenario: Duplicate entries
 
@@ -46,7 +46,7 @@ An entry SHALL be valid only when `url` is an absolute `http` or `https` URL wit
 
 ### Requirement: Changes apply on the next run
 
-The feed list SHALL be read from the file at the start of every digest run and every list or edit operation, so a change made by any means applies to the next run without restarting Hermes.
+The feed list SHALL be read from the file at the start of every digest run and every list or edit operation, so a change made by any means applies to the next run without restarting Hermes. Paused feeds are listed but never fetched.
 
 #### Scenario: Edit between runs
 
@@ -54,9 +54,15 @@ The feed list SHALL be read from the file at the start of every digest run and e
 - **WHEN** the next digest run starts, with no restart in between
 - **THEN** that feed is fetched in the run
 
+#### Scenario: Paused feed is not fetched
+
+- **GIVEN** a feed with `paused: true`
+- **WHEN** a digest run fetches feeds
+- **THEN** no request is made to that feed's URL, and the digest lists it as paused
+
 ### Requirement: Edit through the CLI
 
-`hermes reading feeds` SHALL offer `list`, `add <url> [--theme T] [--title T]`, `remove <url>`, `pause <url>` and `resume <url>`. Edits validate like the file does. A rejected or failed edit SHALL leave the file unchanged and exit non-zero. Adding a URL already in the list (after normalisation) SHALL change nothing and exit zero with a message.
+`hermes reading feeds` SHALL offer `list`, `add <url> [--theme T] [--title T]`, `set <url> [--theme T] [--title T]`, `remove <url>`, `pause <url>` and `resume <url>`. Edits validate like the file does. A rejected or failed edit SHALL leave the file unchanged and exit non-zero. Adding a URL already listed (after normalisation) SHALL change nothing and exit zero, pointing to `set`.
 
 #### Scenario: Add a feed
 
@@ -70,24 +76,36 @@ The feed list SHALL be read from the file at the start of every digest run and e
 
 #### Scenario: Add a duplicate
 
-- **GIVEN** `https://example.com/rss` is in the list
-- **WHEN** the user runs `hermes reading feeds add https://EXAMPLE.com/rss`
-- **THEN** the file is unchanged and the command exits zero saying the feed is already listed
+- **GIVEN** `https://example.com/rss` is listed
+- **WHEN** the user runs `hermes reading feeds add https://EXAMPLE.com/rss --theme ai`
+- **THEN** the file is unchanged, and the command exits zero saying the feed is already listed and `set` changes its theme
 
-#### Scenario: Remove, pause and resume an unknown feed
+#### Scenario: Change a feed's theme
 
-- **WHEN** the user runs `remove`, `pause` or `resume` with a URL that is not in the list
+- **GIVEN** `https://example.com/rss` is listed with theme `architecture`
+- **WHEN** the user runs `hermes reading feeds set https://example.com/rss --theme ai`
+- **THEN** that entry's theme becomes `ai` and the other entries are unchanged
+
+#### Scenario: Remove a feed
+
+- **GIVEN** two feeds are listed
+- **WHEN** the user runs `hermes reading feeds remove` with one of them
+- **THEN** only the other remains in the file
+
+#### Scenario: Operations on an unknown feed
+
+- **WHEN** the user runs `set`, `remove`, `pause` or `resume` with a URL that is not listed
 - **THEN** the command exits non-zero saying the feed is not listed, and the file is unchanged
 
 #### Scenario: Pause and resume
 
-- **GIVEN** `https://example.com/rss` is in the list and not paused
+- **GIVEN** `https://example.com/rss` is listed and not paused
 - **WHEN** the user runs `pause` with it, and later `resume`
 - **THEN** the entry's `paused` becomes true, and then false again; other entries are unchanged
 
-### Requirement: Edit through the agent and the Desktop page
+### Requirement: Edit through the agent tool
 
-The agent tool `daily_reading_feeds` and the Desktop page SHALL offer the same operations (list, add, remove, pause, resume) with the same validation and the same outcomes as the CLI, reported as a result instead of an exit code.
+The agent tool `daily_reading_feeds` SHALL offer the same operations (list, add, set, remove, pause, resume) with the same validation and outcomes as the CLI, reported as a result object instead of an exit code.
 
 #### Scenario: Agent adds a feed
 
@@ -99,6 +117,20 @@ The agent tool `daily_reading_feeds` and the Desktop page SHALL offer the same o
 - **WHEN** the agent calls `daily_reading_feeds` with an unknown action or a missing URL
 - **THEN** the result is an error naming the problem, and the file is unchanged
 
+### Requirement: Edit through the Desktop page
+
+The Desktop page SHALL list the feeds and offer add, set theme or title, remove, pause and resume, through backend routes with the same validation and outcomes as the CLI. A rejected edit shows its reason and leaves the file unchanged.
+
+#### Scenario: Page pauses a feed
+
+- **WHEN** the user pauses a feed on the page
+- **THEN** the file entry has `paused: true` and the page shows it paused
+
+#### Scenario: Page rejects an invalid URL
+
+- **WHEN** the user adds `javascript:alert(1)` on the page
+- **THEN** the page shows the reason and the file is unchanged
+
 ### Requirement: Safe writes
 
 Every edit SHALL replace the file atomically, so a reader sees either the old or the new list, and edits from different processes SHALL be serialised so none is lost. Comments in a hand-edited file are not preserved by edits; the README says so.
@@ -108,24 +140,8 @@ Every edit SHALL replace the file atomically, so a reader sees either the old or
 - **WHEN** two processes add two different feeds at the same time
 - **THEN** the file ends with both entries and is valid YAML
 
-### Requirement: OPML import and export
+#### Scenario: Write fails
 
-`hermes reading feeds import <file.opml>` SHALL add every valid feed in the OPML (outline `xmlUrl`; the parent outline's text becomes `theme` when the feed has none), skipping duplicates, and report added, duplicate and invalid counts. `hermes reading feeds export [file]` SHALL write all feeds, paused included, as OPML 2.0, grouped by theme.
-
-#### Scenario: Import merges and reports
-
-- **GIVEN** an OPML with three feeds, one already listed and one with an `ftp` URL
-- **WHEN** the user imports it
-- **THEN** one feed is added and the report says 1 added, 1 duplicate, 1 invalid
-
-#### Scenario: Malformed or hostile OPML
-
-- **GIVEN** a file that is not well-formed XML, or that declares a DTD or entities
-- **WHEN** the user imports it
-- **THEN** the import fails with an error, no entity is expanded, and the feeds file is unchanged
-
-#### Scenario: Export round-trip
-
-- **GIVEN** a list of feeds with themes and one paused feed
-- **WHEN** the user exports and then imports the export into an empty list
-- **THEN** the same URLs and themes are listed (paused state is not carried by OPML and becomes false)
+- **GIVEN** the folder of `feeds_file` cannot be written
+- **WHEN** the user adds a feed
+- **THEN** the edit fails with an error, and the existing file is unchanged

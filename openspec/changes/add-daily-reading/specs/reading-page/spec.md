@@ -8,7 +8,7 @@ The Hermes Desktop page that shows a stored digest (summary, audio and items) an
 
 ### Requirement: Page content
 
-A Desktop page "Daily reading" SHALL show the newest stored digest: its date, summary, an audio player when audio exists, and its items in rank order, each with title, source feeds, matched themes, date, link and read state. The user can switch to any other kept digest. Feed text SHALL be shown as plain text, never rendered as HTML.
+A Desktop page "Daily reading" SHALL show the newest stored digest: date, introduction, an audio player when audio exists, and items in rank order with number, title, summary paragraph, source feeds, matched themes, date, link and read state. The user can switch to any other kept digest. Feed and model text SHALL be shown as plain text, never as HTML.
 
 #### Scenario: Latest digest shown
 
@@ -28,6 +28,41 @@ A Desktop page "Daily reading" SHALL show the newest stored digest: its date, su
 - **WHEN** the page shows the item
 - **THEN** the characters are displayed as text and no element is created
 
+### Requirement: Opening links
+
+The page SHALL open an item's link only when the stored link is an absolute `http`/`https` URL, and only in the system browser. An item without a valid link shows no link control.
+
+#### Scenario: Item without a valid link
+
+- **GIVEN** an item whose feed link was `javascript:alert(1)` (stored with no link)
+- **WHEN** the page shows it
+- **THEN** there is no link control, and nothing on the item navigates
+
+### Requirement: Backend routes
+
+The page's backend routes SHALL be served only through Hermes' plugin API for the active profile, with Hermes' own authentication, and only while the plugin is enabled. No route takes a file path: digests are addressed by date (`YYYY-MM-DD`) and items by their id in that digest.
+
+#### Scenario: Malformed digest date
+
+- **WHEN** a route is called with digest `../../etc` or `2026-13-45`
+- **THEN** it fails with "invalid digest" and reads no file
+
+### Requirement: Audio route
+
+The audio route SHALL return the audio file recorded in the requested digest, only when that file is a regular file (not a symlink) whose real path is inside that digest's folder; otherwise it answers "not found".
+
+#### Scenario: Audio served
+
+- **GIVEN** today's digest records `audio.mp3` in its folder
+- **WHEN** the page requests today's audio
+- **THEN** the file is returned
+
+#### Scenario: Symlinked or missing audio
+
+- **GIVEN** a digest whose recorded audio is a symlink to a file outside its folder, or was deleted
+- **WHEN** the page requests that audio
+- **THEN** the route answers "not found" and returns no file content
+
 ### Requirement: Mark read
 
 The user SHALL be able to mark an item read or unread. The state is stored with the digest, survives restarts, and setting the same state twice changes nothing.
@@ -44,13 +79,18 @@ The user SHALL be able to mark an item read or unread. The state is stored with 
 
 ### Requirement: Save as fragment
 
-When setting `fragments_dir` is set, "save as fragment" SHALL append one entry (title, link, source feeds, digest date, and an optional note the user types) to `<fragments_dir>/daily-reading-<YYYY-MM-DD>.md`, creating the folder and file if needed. Saving the same item again SHALL change nothing. When the setting is empty, the action is shown disabled with a hint naming the setting.
+With setting `fragments_dir` set, "save as fragment" SHALL append one entry (title, link, source feeds, digest date, optional typed note, and an id marker) to `<fragments_dir>/daily-reading-<YYYY-MM-DD>.md`, creating folder and file as needed. Saves are serialised; an item whose marker is already in the file is not added again. With the setting empty, the action is disabled with a hint.
 
 #### Scenario: Save with a note
 
 - **GIVEN** `fragments_dir` is set
 - **WHEN** the user saves item 2 with the note "use in the retries article"
-- **THEN** the day's fragments file ends with one entry holding the item's title, link, sources, date and the note
+- **THEN** the day's fragments file ends with one entry holding the item's title, link, sources, date, the note and its marker
+
+#### Scenario: Saved twice, also concurrently
+
+- **WHEN** item 2 is saved twice, including two saves at the same time
+- **THEN** the file holds exactly one entry for item 2
 
 #### Scenario: Not configured
 
@@ -62,26 +102,54 @@ When setting `fragments_dir` is set, "save as fragment" SHALL append one entry (
 
 - **GIVEN** `fragments_dir` points to a location that cannot be written
 - **WHEN** the user saves an item
-- **THEN** the page shows the error and the item is not marked as saved
+- **THEN** the page shows the error, and the item is not shown as saved
 
-### Requirement: Article idea needs confirmation
+### Requirement: Article idea preview and confirmation
 
-"Turn into article idea" SHALL first show exactly what will be sent (title, link, sources, the item's line from the summary, the target) and act only after the user confirms. Cancelling sends nothing. An item already sent asks again, saying when it was sent. When setting `ideas.target` is `none` (the default), the action is disabled with a hint.
+"Turn into article idea" SHALL first return a preview: title, link, sources, the item's summary paragraph (empty when there is none) and the resolved target. Acting needs a confirmation that names this preview; a preview is used once and expires after 10 minutes. With `ideas.target` `none` (the default), the action is disabled with a hint.
 
 #### Scenario: Cancel
 
 - **WHEN** the user opens the confirmation for item 1 and cancels
 - **THEN** nothing is written or run, and item 1 is not marked as sent
 
+#### Scenario: Stale or reused preview
+
+- **GIVEN** a preview for item 1
+- **WHEN** it is confirmed after the idea settings changed, after today's digest was replaced, after 10 minutes, or a second time
+- **THEN** the confirmation is refused as stale, nothing is written or run, and the user can ask for a new preview
+
+#### Scenario: No summary paragraph
+
+- **GIVEN** the digest has no summary
+- **WHEN** the user previews and confirms an idea
+- **THEN** the preview shows an empty summary, and `{summary}` is replaced by an empty string
+
+### Requirement: Article idea attempts
+
+Each confirmed idea SHALL be an attempt recorded before acting, with one outcome: sent, failed (the target reported failure) or unknown (timeout, or the process ended mid-attempt). Only one attempt per item runs at a time. Retrying after "sent" or "unknown" needs a preview that warns a duplicate may be created.
+
+#### Scenario: Concurrent confirmations
+
+- **GIVEN** an attempt for item 1 is running
+- **WHEN** another confirmation for item 1 arrives
+- **THEN** it is refused with "already in progress"
+
 #### Scenario: Already sent
 
 - **GIVEN** item 1 was sent yesterday
-- **WHEN** the user chooses "turn into article idea" for it again
-- **THEN** the confirmation says it was already sent and when, and nothing happens without a new confirmation
+- **WHEN** the user asks to turn it into an article idea again
+- **THEN** the preview says it was already sent and when, and warns that confirming may create a duplicate
+
+#### Scenario: Interrupted attempt
+
+- **GIVEN** the process ended while an attempt for item 1 was running
+- **WHEN** the page shows item 1
+- **THEN** its idea state is "unknown", with a hint to check the target before retrying
 
 ### Requirement: Article idea targets
 
-With `ideas.target: file`, a confirmed idea SHALL be appended to `ideas.file`. With `ideas.target: command`, the argument list `ideas.command` SHALL be run without a shell, each `{title}`, `{url}`, `{summary}`, `{sources}` placeholder replaced inside its own argument, with a 30-second timeout. Exit 0 marks the item sent and keeps the first output line (an issue id, say); anything else shows the error and leaves it unsent.
+With `ideas.target: file`, a confirmed idea SHALL be appended to `ideas.file` (failure to write is "failed"). With `ideas.target: command`, the argument list `ideas.command` runs without a shell, each `{title}`, `{url}`, `{summary}`, `{sources}` replaced inside its own argument, with a 30-second timeout. Exit 0 is "sent" and keeps the first output line; another exit is "failed"; a timeout is "unknown".
 
 #### Scenario: Command target succeeds
 
@@ -89,11 +157,23 @@ With `ideas.target: file`, a confirmed idea SHALL be appended to `ideas.file`. W
 - **WHEN** the user confirms an idea for an item titled `Retries; rm -rf ~`
 - **THEN** `make-idea` receives the title as one argument, unchanged, no shell runs, and the item shows as sent with the command's first output line
 
-#### Scenario: Command fails or hangs
+#### Scenario: Command fails
 
-- **GIVEN** the command exits 1, or runs longer than 30 seconds
+- **GIVEN** the command exits 1
 - **WHEN** the user confirms an idea
-- **THEN** the page shows the failure (the hung command is stopped), and the item stays unsent so the user can retry
+- **THEN** the page shows the failure and its first error line, and the item's state is "failed"
+
+#### Scenario: Command hangs
+
+- **GIVEN** the command runs longer than 30 seconds
+- **WHEN** the user confirms an idea
+- **THEN** the command is stopped and the item's state is "unknown"
+
+#### Scenario: File target
+
+- **GIVEN** `ideas.target` is `file`
+- **WHEN** the user confirms an idea, once with a writable `ideas.file` and once with an unwritable one
+- **THEN** the first appends one entry and is "sent"; the second shows the error and is "failed"
 
 #### Scenario: Invalid command setting
 
@@ -101,9 +181,9 @@ With `ideas.target: file`, a confirmed idea SHALL be appended to `ideas.file`. W
 - **WHEN** the user opens the page
 - **THEN** the action is disabled with a hint naming `ideas.command`
 
-### Requirement: Run and feeds from the page
+### Requirement: Run from the page
 
-The page SHALL let the user start a run (with the same one-digest-per-day and force rules as the CLI) and manage feeds with the same operations and validation as `hermes reading feeds`.
+The page SHALL let the user start a run, normal or forced, with the same rules as the CLI. It does not wait for a run in progress.
 
 #### Scenario: Run from the page while another runs
 

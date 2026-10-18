@@ -30,7 +30,7 @@ See proposal.md for the why. Facts that shape the approach, observed in the Herm
 - **Chosen:** the feeds live in a YAML file the user owns (`feeds_file`). Run state (seen items, read marks, sent ideas, saved fragments) lives in `$HERMES_HOME/daily-reading/state.sqlite`, and each digest in `digests/<date>/digest.json` plus its audio file.
 - **Rejected:** feeds as a `config_schema` list in `config.yaml`. It cannot be edited comfortably by hand and is awkward to group by theme.
 - **Rejected:** `ctx.state`. It is limited to 10 MiB and is a key-value store, while the seen-items window needs queries by date.
-- **Rejected:** reading another reader's store. rss-reader's store is unreachable from cron, and newswire's database is internal to it. OPML is the interoperable format instead.
+- **Rejected:** reading another reader's store. rss-reader's store is unreachable from cron, and newswire's database is internal to it. OPML would be the interoperable format; it is left for a later change because the card does not ask for it.
 - **YAML parsing:** uses PyYAML, a Hermes core dependency, so the plugin adds nothing to the environment. Edits rewrite the file and drop comments, and the README says so.
 
 ### D3. Fetching and parsing adapted from hermes-newswire (MIT)
@@ -43,8 +43,9 @@ See proposal.md for the why. Facts that shape the approach, observed in the Herm
 
 ### D4. Ranking: one structured call over bounded, untrusted excerpts
 
-- **Chosen:** candidates go to the model in one `complete_structured` call. Each candidate is capped and sent with an id, title and excerpt inside a block the instructions call untrusted. The model returns `{id: {theme: score 0–3}}`, validated against a schema, and unknown ids are ignored.
-  - Keyword matching against theme names and keywords is both the pre-filter that picks the top `max_rank_candidates` and the fallback when the answer is invalid.
+- **Chosen:** candidates go to the model in one `complete_structured` call. Each candidate is capped and sent with an id, title and excerpt inside a block the instructions call untrusted. The model returns `{id: {theme: score 0–3}}`. The plugin validates it itself, per item, so a partly wrong answer keeps its good scores (spec "Invalid ranking answers").
+  - Keyword scores on the same 0–3 scale pick the top `max_rank_candidates` and stand in for missing or invalid model scores, so totals stay comparable.
+  - The summary is a second structured call returning an introduction and one paragraph per item number, so the page and the article-idea preview can show each item's own paragraph.
   - The prompt safeguards follow rss-reader's grading prompt (`rss-reader/desktop/plugin.js:447-503`).
 - **Rejected:** one call per item, which multiplies cost and latency by up to 60.
 - **Rejected:** embeddings, which would add a model and a dependency.
@@ -52,11 +53,16 @@ See proposal.md for the why. Facts that shape the approach, observed in the Herm
 ### D5. Article ideas go to a generic target; Boards is the owner's configuration
 
 - **Chosen:** `ideas.target` is `none` (the default), `file` or `command`. The command is an argument list run with `subprocess.run(shell=False)`; placeholders are replaced inside each argument and never split into new arguments. The owner's `hermes-personal` sets the command to `az boards work-item create … --fields System.Tags=artigo`.
+- **Confirmation is bound to a preview:** the backend issues a single-use token for a preview, holding a hash of the item, the payload and the resolved target, and valid for 10 minutes. A confirmation whose token is unknown, used or expired, or whose current payload or target no longer hashes the same, is refused.
+- **Each attempt is recorded before the target runs** (state `running`). A `running` attempt found after a restart becomes `unknown`. External trackers have no idempotency key we could rely on, so the plugin cannot know whether a timed-out command created the issue; it warns instead of retrying silently.
 - **Rejected:** a built-in Azure Boards client, which ties a public plugin to one tracker and needs credential handling.
 
 ### D6. Desktop page through the plugin backend
 
-- **Chosen:** a Desktop page (`desktop/plugin.js`) that only displays. It calls `plugin_api.py` routes that share the plugin's Python modules (digest, feeds, actions). The audio is served by a backend route that only serves files from the digests folder.
+- **Chosen:** a Desktop page (`desktop/plugin.js`) that only displays. It calls `plugin_api.py` routes that share the plugin's Python modules (digest, feeds, actions). No route takes a path. The audio route reads the file name from the digest record and serves it only as a regular file inside that digest's folder. Links open through the host's external-browser call, and only for http(s).
+- **Digests are written to a temporary folder in the same parent and renamed into place** (a forced run renames the old folder aside first and deletes it only after the swap). Readers see either the old digest or the new one, never a half-written one.
+  - The shown-items records are then replaced in one SQLite transaction tagged with the digest's generation id.
+  - Every run first reconciles today's records with the generation of today's stored digest, which covers a crash between the rename and the transaction.
 - **Rejected:** keeping state in browser storage, the way rss-reader does, because the cron run could not see it.
 
 ## Risks / Trade-offs
