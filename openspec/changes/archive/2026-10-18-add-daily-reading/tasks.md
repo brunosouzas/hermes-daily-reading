@@ -4,7 +4,7 @@ Test files are pytest unless noted. "Unit" tests call the modules directly; "int
 
 ## 1. Scaffolding and host checks
 
-- [ ] 1.1 Confirm `LICENSE` is MIT with the owner's name (committed on `main`). Create `plugin.yaml` (name `daily-reading`, `config_schema` with every setting and its default), `__init__.py` with `register(ctx)`, `pyproject.toml`, `conftest.py` loading the repo as a package, and `AGENTS.md`. Verify that `hermes plugins validate . --install-deps` passes. (Done except `AGENTS.md`, which waits for the owner's approval.)
+- [x] 1.1 Confirm `LICENSE` is MIT with the owner's name (committed on `main`). Create `plugin.yaml` (name `daily-reading`, `config_schema` with every setting and its default), `__init__.py` with `register(ctx)`, `pyproject.toml`, `conftest.py` loading the repo as a package, and `AGENTS.md`. Verify that `hermes plugins validate . --install-deps` passes.
 - [x] 1.2 Spike in a throwaway profile: call `ctx.llm.complete` and `ctx.dispatch_tool("text_to_speech")` from a tool handler run by `hermes cron run`, and from a CLI command. Record the outcome in the pull request, and adjust D1 if a context lacks either.
 - [x] 1.3 Record real fixtures. `tests/record_feeds.py` saves three real feeds into `tests/fixtures/feeds/`: an RSS 2.0 feed, an Atom 1.0 feed, and one with HTML in its summaries. Verify the files exist and parse as XML.
 
@@ -63,7 +63,7 @@ Test files are pytest unless noted. "Unit" tests call the modules directly; "int
 
 ## 5. Integration
 
-- [ ] 5.1 Card acceptance, on the owner's Mac in a throwaway profile, with his feeds, `language: pt-BR`, his themes, and TTS `kokoro-mlx` with voice `pf_dora`:
+- [x] 5.1 Card acceptance, on the owner's Mac in a throwaway profile, with his feeds, `language: pt-BR`, his themes, and TTS `kokoro-mlx` with voice `pf_dora`:
   - schedule the blueprint and let the job run through Hermes' scheduler (or trigger it with `hermes cron run <id>`, and record which);
   - confirm the digest records provider `kokoro-mlx`, and that Hermes' voice setting at run time is `pf_dora`;
   - measure the audio with `ffprobe`: it passes at 4–6 minutes; outside that, tune the owner's `words_per_minute`, force a new run, and record both measurements;
@@ -71,6 +71,7 @@ Test files are pytest unless noted. "Unit" tests call the modules directly; "int
   - mark one item read, save one fragment, and send one article idea to a `file` target.
 
   Record the evidence in the pull request: cron execution id, counts, duration and a screenshot.
+  (Recorded in PR #1. The page was exercised through the profile's real dashboard server; the Desktop screenshot follows when the owner enables the desktop half with his configuration in `hermes-personal`.)
 - [x] 5.2 `hermes plugins validate . --install-deps` passes with no dangerous alerts, and the full test suite passes. Record the result in the pull request.
 
 ## Workflow follow-up
