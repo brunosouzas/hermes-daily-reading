@@ -1,0 +1,104 @@
+name: daily-reading
+version: 0.1.0
+manifest_version: 2
+api_version: 1
+description: "Daily reading digest from your RSS/Atom feeds: duplicates removed across feeds, ranked by your themes, summarised in your language and read aloud with your Hermes TTS voice; a Desktop page to read, save fragments and send article ideas. Runs on a schedule with Desktop closed."
+author: "Bruno Souza (@brunosouzas)"
+license: MIT
+homepage: https://github.com/brunosouzas/hermes-daily-reading
+tags: [rss, atom, reading, digest, tts, desktop]
+requires_hermes: ">=0.22.2"
+platforms: [macos, linux]
+provides_tools: [daily_reading_run, daily_reading_feeds]
+provides_hooks: []
+config_schema:
+  feeds_file:
+    type: str
+    default: ""
+    label: Feeds file
+    description: "YAML file with your feeds. Empty = $HERMES_HOME/daily-reading/feeds.yaml. Edit it by hand, with `hermes reading feeds`, on the Daily reading page, or by asking Hermes."
+  language:
+    type: str
+    default: en
+    label: Summary language
+    description: "Language of the summary and audio, as a code such as en, pt-BR or es."
+  themes:
+    type: list
+    default: []
+    label: Themes
+    description: "What you want to read about, most important first: a list of {name, keywords, weight}, e.g. [{name: integration architecture, keywords: [MuleSoft, API-led], weight: 2}]. Empty = newest first, no ranking."
+  max_items:
+    type: int
+    default: 8
+    label: Items per digest
+    description: "How many items the digest keeps (1-30)."
+  audio_minutes:
+    type: int
+    default: 5
+    label: Audio length (minutes)
+    description: "Target length of the audio (1-15). The summary is sized as minutes × words per minute."
+  words_per_minute:
+    type: int
+    default: 150
+    label: Speaking rate (words per minute)
+    description: "Used to turn the audio length into a word target (80-250). Tune it to your voice."
+  summary_words:
+    type: int
+    default: 0
+    label: Summary length (words)
+    description: "0 = derive from the audio length. Otherwise the word target (100-3000), and the audio length follows."
+  fragments_dir:
+    type: str
+    default: ""
+    label: Fragments folder
+    description: "Where 'save as fragment' appends entries (one file per digest day). Empty = action off."
+  ideas:
+    type: dict
+    default: {target: none}
+    label: Article ideas
+    description: "Where 'turn into article idea' sends a confirmed idea: {target: none} (off), {target: file, file: PATH}, or {target: command, command: [program, arg, ...]} with {title} {url} {summary} {sources} placeholders, run without a shell."
+  max_age_days:
+    type: int
+    default: 3
+    label: Maximum item age (days)
+    description: "Items older than this are skipped (1-30)."
+  seen_days:
+    type: int
+    default: 30
+    label: Remember shown items (days)
+    description: "An item shown in a digest is not shown again for this many days (1-365)."
+  keep_digests:
+    type: int
+    default: 7
+    label: Digests kept
+    description: "How many digests (with audio) are kept on disk (1-90)."
+  max_feeds:
+    type: int
+    default: 100
+    label: Maximum feeds per run
+    description: "Active feeds fetched per run, in file order (1-500)."
+  max_items_per_feed:
+    type: int
+    default: 30
+    label: Items read per feed
+    description: "Newest items kept from each feed (1-200)."
+  max_rank_candidates:
+    type: int
+    default: 60
+    label: Items sent for ranking
+    description: "Candidates sent to the model in the ranking request (5-200)."
+  max_excerpt_chars:
+    type: int
+    default: 1200
+    label: Characters per item sent to the model
+    description: "Each item's text is cut to this before it is sent (200-5000)."
+  fetch_timeout_s:
+    type: int
+    default: 15
+    label: Feed timeout (seconds)
+    description: "Per feed (1-60)."
+  max_feed_bytes:
+    type: int
+    default: 2097152
+    label: Maximum feed size (bytes)
+    description: "Per feed, 65536-10485760."

@@ -1,0 +1,17 @@
+[project]
+name = "hermes-daily-reading"
+version = "0.1.0"
+description = "Hermes Agent plugin: daily reading digest from RSS/Atom feeds, ranked by your themes, summarised and read aloud"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.10"
+# Nothing is installed into Hermes: the plugin uses the standard library plus PyYAML, which Hermes ships.
+dependencies = []
+
+[dependency-groups]
+dev = ["pytest>=8,<10", "pyyaml>=6", "fastapi>=0.110", "httpx>=0.27", "ruamel.yaml>=0.18", "croniter>=2"]  # the last two: Hermes blueprint validator
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# importlib mode: the repository root is the plugin package and must not be collected as one.
+addopts = "-p no:cacheprovider --import-mode=importlib"
