@@ -1,0 +1,35 @@
+# OpenSpec configuration for hermes-daily-reading (from the kit's model, schema spec-driven).
+schema: spec-driven
+
+context: |
+  hermes-daily-reading is a public Hermes Agent plugin (Python, standard library
+  only, plus a Desktop page in JavaScript). Nothing personal belongs in code:
+  feeds, themes, paths, schedule and external commands come from configuration.
+  Feed content is untrusted input. Tests run offline with pytest.
+
+  Size every artifact to the request. A small change gets a short proposal,
+  a design.md of a few lines and few tasks. Plan only what the request asks for.
+  Sizing shortens prose, design and the number of tasks; it never removes the
+  test of a specified scenario. No coverage target and no test for behaviour
+  the change does not specify.
+
+rules:
+  proposal:
+    - State what is out of scope.
+    - Do not add capabilities, options or requirements the request does not ask for.
+    - When the request is unclear, list the open question instead of choosing an answer.
+    - "Include a `## Implicit requirements` section answering six items: errors and invalid input; limits; repetition and idempotency; concurrency; security; logs and observability. Answer each as a requirement, out of scope, an open question, or `n/a` with a one-line reason. Leave none unanswered."
+    - End with a `## Documentation` section listing the repository docs, vault notes, ADR or Confluence pages the change affects, or "none" with the reason.
+  specs:
+    - Specify only behaviour this change adds or modifies.
+    - No requirement for hypothetical future needs, extension points or configurability nobody asked for.
+    - Give every requirement at least one error or boundary scenario, unless the proposal's `## Implicit requirements` section states why it has none.
+    - A delta that creates a new capability starts with a `## Purpose` of at least 50 characters; without it the archive writes a placeholder that `openspec validate --strict` rejects.
+    - Keep each requirement's text under 500 characters; split a longer one into two requirements. `openspec validate --strict` fails on longer requirements, also after the archive merges a delta into the main spec.
+  design:
+    - Without a technical decision between real alternatives, keep design.md to a few lines that say so (tasks stay blocked until the file exists).
+    - Prefer the existing structure, dependencies and conventions of the repository; justify anything new.
+  tasks:
+    - Every task traces back to the proposal; no extra refactors, abstractions or cleanups.
+    - Each task states how it is verified, with the project's existing tests and checks.
+    - "Name every spec scenario in a task together with the test that proves it: file or test name and level (unit, integration or e2e). Without a test framework, give the exact command and its expected output. This holds for a change of any size."
