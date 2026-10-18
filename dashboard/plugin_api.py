@@ -116,7 +116,7 @@ def digest(day: str) -> Dict[str, Any]:
         })
     audio = data.get("audio") or {}
     return {
-        "date": data.get("date"), "intro": data.get("intro") or "", "items": items, "message": data.get("message") or "",
+        "date": data.get("date"), "generation": data.get("generation") or "", "intro": data.get("intro") or "", "items": items, "message": data.get("message") or "",
         "summary_failed": bool(data.get("summary_failed")), "audio": {"count": len(audio.get("files") or []),
                                                                     "failed": bool(audio.get("failed"))},
         "ranking": data.get("ranking") or {}, "feeds": data.get("feeds") or [],
@@ -188,7 +188,8 @@ def audio(day: str, index: int) -> Dict[str, Any]:
     _check_day(day)
     store = _store()
     data = store.load(day)
-    folder = store.digest_dir(day)
+    # Use the generation this metadata belongs to, not whatever "current" points at by now.
+    folder = store.generation_dir(day, (data or {}).get("generation"))
     files = ((data or {}).get("audio") or {}).get("files") or []
     if data is None or folder is None or not isinstance(index, int) or not 1 <= index <= len(files):
         raise _err(404, "not_found", "not found")

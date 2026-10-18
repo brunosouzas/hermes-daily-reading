@@ -68,6 +68,7 @@ class Settings:
     themes: List[Theme] = field(default_factory=list)
     summary_words: int = 0
     fragments_dir: str = ""
+    user_agent: str = ""
     ideas: Ideas = field(default_factory=Ideas)
     ints: Dict[str, int] = field(default_factory=dict)
     warnings: List[str] = field(default_factory=list)
@@ -164,7 +165,16 @@ def load_settings(get: Getter, home: Optional[Path] = None, log: bool = True) ->
     themes = _themes(raw("themes"), warn)
     ideas = _ideas(raw("ideas"), warn, home)
 
-    settings = Settings(home=home, feeds_file=feeds_file, language=language, themes=themes,
+    user_agent = raw("user_agent")
+    if user_agent in (None, ""):
+        user_agent = ""
+    elif not isinstance(user_agent, str) or not user_agent.strip() or len(user_agent) > 300 \
+            or any(ord(c) < 32 for c in user_agent):
+        warn("user_agent", "not a single line of text up to 300 characters, using the plugin's own")
+        user_agent = ""
+    user_agent = user_agent.strip()
+
+    settings = Settings(home=home, feeds_file=feeds_file, language=language, themes=themes, user_agent=user_agent,
                         summary_words=summary_words, fragments_dir=fragments_dir, ideas=ideas,
                         ints=ints, warnings=warnings)
     if log:

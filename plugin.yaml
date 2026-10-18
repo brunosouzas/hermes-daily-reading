@@ -97,6 +97,11 @@ config_schema:
     default: 15
     label: Feed timeout (seconds)
     description: "Per feed (1-60)."
+  user_agent:
+    type: str
+    default: ""
+    label: User agent for feed requests
+    description: "Empty = hermes-daily-reading/<version>. Some sites refuse unknown clients; set another value only for feeds you are allowed to read."
   max_feed_bytes:
     type: int
     default: 2097152

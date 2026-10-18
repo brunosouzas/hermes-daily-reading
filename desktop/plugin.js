@@ -68,6 +68,11 @@ function text (value) {
   return typeof value === 'string' ? value : value == null ? '' : String(value)
 }
 
+export function formatDate (value) {
+  const d = new Date(value)
+  return Number.isNaN(d.getTime()) ? '' : d.toISOString().slice(0, 16).replace('T', ' ') + ' UTC'
+}
+
 function hostOf (url) {
   try { return new URL(url).host } catch { return text(url) }
 }
@@ -75,7 +80,7 @@ function hostOf (url) {
 const IDEA_LABEL = { sent: 'Idea sent', failed: 'Idea failed', unknown: 'Idea outcome unknown', running: 'Sending idea…' }
 
 // ── pure views ─────────────────────────────────────────────────────────────
-export function ItemCard ({ item, actions, busy = {}, error = '', onToggleRead, onFragment, onIdea, onOpen }) {
+export function ItemCard ({ item, actions, busy = {}, error = '', note = null, onToggleRead, onFragment, onNote, onIdea, onOpen }) {
   const link = safeLink(item.link)
   const fragment = actions?.fragment || { enabled: false, hint: '' }
   const idea = actions?.idea || { enabled: false, hint: '' }
@@ -95,6 +100,7 @@ export function ItemCard ({ item, actions, busy = {}, error = '', onToggleRead, 
           ideaState ? jsx(Badge, { 'data-role': 'idea-badge', children: IDEA_LABEL[ideaState] || ideaState }) : null
         ]
       }),
+      item.published ? jsx('div', { className: `${ID}-muted`, 'data-role': 'published', children: formatDate(item.published) }) : null,
       item.paragraph ? jsx('p', { 'data-role': 'paragraph', children: text(item.paragraph) }) : null,
       !item.paragraph && item.excerpt ? jsx('p', { 'data-role': 'excerpt', className: `${ID}-muted`, children: text(item.excerpt) }) : null,
       jsx('div', {
@@ -113,7 +119,7 @@ export function ItemCard ({ item, actions, busy = {}, error = '', onToggleRead, 
             size: 'sm', variant: 'ghost', 'data-action': 'fragment',
             disabled: !fragment.enabled || !!busy.fragment || item.fragment_saved,
             title: fragment.enabled ? '' : fragment.hint,
-            onClick: () => onFragment?.(item), children: item.fragment_saved ? 'Saved as fragment' : 'Save as fragment'
+            onClick: () => onNote?.(item, ''), children: item.fragment_saved ? 'Saved as fragment' : 'Save as fragment'
           }),
           jsx(Button, {
             size: 'sm', variant: 'ghost', 'data-action': 'idea',
@@ -125,6 +131,16 @@ export function ItemCard ({ item, actions, busy = {}, error = '', onToggleRead, 
           !idea.enabled ? jsx('span', { className: `${ID}-hint`, 'data-role': 'idea-hint', children: text(idea.hint) }) : null
         ]
       }),
+      note !== null && note !== undefined
+        ? jsxs('div', {
+          className: `${ID}-actions`, 'data-role': 'note-form',
+          children: [
+            jsx(Input, { 'data-role': 'note', placeholder: 'Note (optional)', value: note, onChange: e => onNote?.(item, e.target.value) }),
+            jsx(Button, { size: 'sm', 'data-action': 'fragment-save', disabled: !!busy.fragment, onClick: () => onFragment?.(item, note), children: 'Save' }),
+            jsx(Button, { size: 'sm', variant: 'ghost', 'data-action': 'fragment-cancel', onClick: () => onNote?.(item, null), children: 'Cancel' })
+          ]
+        })
+        : null,
       error ? jsx('div', { className: `${ID}-error`, 'data-role': 'error', children: text(error) }) : null
     ]
   })
@@ -198,7 +214,7 @@ export function DigestView ({ digest, dates = [], selected, run, audioSlot = nul
   })
 }
 
-export function FeedsView ({ feeds = [], problems = [], error = '', draft = {}, onDraft, onAdd, onEdit, onBack }) {
+export function FeedsView ({ feeds = [], problems = [], error = '', draft = {}, editing = null, onDraft, onAdd, onEdit, onEditing, onBack }) {
   return jsxs('div', {
     className: `${ID}-page`,
     children: [
@@ -210,7 +226,19 @@ export function FeedsView ({ feeds = [], problems = [], error = '', draft = {}, 
           f.theme ? jsx(Badge, { children: text(f.theme) }) : null,
           f.paused ? jsx(Badge, { 'data-role': 'paused', children: 'Paused' }) : null,
           jsx(Button, { size: 'sm', variant: 'ghost', 'data-action': f.paused ? 'resume' : 'pause', onClick: () => onEdit?.(f.paused ? 'resume' : 'pause', f.url), children: f.paused ? 'Resume' : 'Pause' }),
-          jsx(Button, { size: 'sm', variant: 'ghost', 'data-action': 'remove', onClick: () => onEdit?.('remove', f.url), children: 'Remove' })
+          jsx(Button, { size: 'sm', variant: 'ghost', 'data-action': 'edit', onClick: () => onEditing?.({ url: f.url, theme: f.theme || '', title: f.title || '' }), children: 'Edit' }),
+          jsx(Button, { size: 'sm', variant: 'ghost', 'data-action': 'remove', onClick: () => onEdit?.('remove', f.url), children: 'Remove' }),
+          editing && editing.url === f.url
+            ? jsxs('div', {
+              className: `${ID}-toolbar`, 'data-role': 'edit-form',
+              children: [
+                jsx(Input, { 'data-role': 'edit-title', placeholder: 'title', value: editing.title, onChange: e => onEditing?.({ ...editing, title: e.target.value }) }),
+                jsx(Input, { 'data-role': 'edit-theme', placeholder: 'theme', value: editing.theme, onChange: e => onEditing?.({ ...editing, theme: e.target.value }) }),
+                jsx(Button, { size: 'sm', 'data-action': 'edit-save', onClick: () => onEdit?.('set', f.url, { theme: editing.theme, title: editing.title }), children: 'Save' }),
+                jsx(Button, { size: 'sm', variant: 'ghost', 'data-action': 'edit-cancel', onClick: () => onEditing?.(null), children: 'Cancel' })
+              ]
+            })
+            : null
         ]
       }, f.url)),
       problems.map((p, i) => jsx('div', { className: `${ID}-warning`, children: `Skipped ${text(p)}` }, `p${i}`)),
@@ -272,8 +300,23 @@ function DailyReadingPage () {
   const [runNotice, setRunNotice] = useState('')
   const [draft, setDraft] = useState({})
   const [feedsError, setFeedsError] = useState('')
+  const [notes, setNotes] = useState({})
+  const [editing, setEditing] = useState(null)
+  const [polling, setPolling] = useState(false)
 
   const list = useQuery({ queryKey: [ID, 'digests'], queryFn: () => rest('/digests'), refetchInterval: 15000 })
+  const runState = useQuery({ queryKey: [ID, 'run'], queryFn: () => rest('/run'), refetchInterval: polling ? 2000 : false })
+  const running = !!runState.data?.running
+  const wasRunning = useRef(false)
+  useEffect(() => {
+    if (wasRunning.current && !running) {
+      setPolling(false)
+      const last = runState.data?.last
+      if (last) setRunNotice(last.status === 'built' || last.status === 'existing' ? text(last.message).split('.')[0] + '.' : `Run ${text(last.status)}: ${text(last.message)}`)
+      queryClient.invalidateQueries({ queryKey: [ID] })
+    }
+    wasRunning.current = running
+  }, [running])
   const day = selected || list.data?.latest || null
   const digest = useQuery({ queryKey: [ID, 'digest', day], queryFn: () => rest(`/digest/${day}`), enabled: !!day })
   const feeds = useQuery({ queryKey: [ID, 'feeds'], queryFn: () => rest('/feeds'), enabled: view === 'feeds' })
@@ -289,7 +332,11 @@ function DailyReadingPage () {
   const handlers = {
     onOpen: url => { void openExternalFn(url) },
     onToggleRead: item => act(item, 'read', () => rest(`/digest/${day}/items/${item.id}/read`, { method: 'POST', body: { read: !item.read } })),
-    onFragment: item => act(item, 'fragment', () => rest(`/digest/${day}/items/${item.id}/fragment`, { method: 'POST', body: {} })),
+    onNote: (item, value) => setNotes(n => ({ ...n, [item.id]: value })),
+    onFragment: (item, note) => act(item, 'fragment', async () => {
+      await rest(`/digest/${day}/items/${item.id}/fragment`, { method: 'POST', body: { note: note || '' } })
+      setNotes(n => ({ ...n, [item.id]: null }))
+    }),
     onIdea: item => act(item, 'idea', async () => {
       setIdeaResult(null); setIdeaError('')
       setPreview(await rest(`/digest/${day}/items/${item.id}/idea/preview`, { method: 'POST', body: {} }))
@@ -298,6 +345,7 @@ function DailyReadingPage () {
   const itemProps = { '*': handlers }
   for (const [id, b] of Object.entries(busy)) itemProps[id] = { busy: b, error: errors[id] || '' }
   for (const [id, e] of Object.entries(errors)) itemProps[id] = { ...(itemProps[id] || {}), error: e }
+  for (const [id, n] of Object.entries(notes)) itemProps[id] = { ...(itemProps[id] || {}), note: n }
 
   const onConfirm = async token => {
     setIdeaBusy(true); setIdeaError('')
@@ -309,6 +357,7 @@ function DailyReadingPage () {
     try {
       const out = await rest('/run', { method: 'POST', body: { force } })
       setRunNotice(out.status === 'in_progress' ? 'A run is already in progress.' : 'Building the digest…')
+      if (out.started) { wasRunning.current = true; setPolling(true) }
     } catch (e) { setRunNotice(errText(e)) }
     refresh()
   }
@@ -316,15 +365,19 @@ function DailyReadingPage () {
   if (view === 'feeds') {
     return jsx(ScrollArea, {
       children: jsx(FeedsView, {
-        feeds: feeds.data?.feeds || [], problems: feeds.data?.problems || [], error: feedsError, draft,
-        onDraft: setDraft, onBack: () => setView('digest'),
+        feeds: feeds.data?.feeds || [], problems: feeds.data?.problems || [], error: feedsError, draft, editing,
+        onDraft: setDraft, onEditing: setEditing, onBack: () => setView('digest'),
         onAdd: async d => {
           setFeedsError('')
           try { await rest('/feeds', { method: 'POST', body: { action: 'add', url: d.url || '', theme: d.theme || undefined } }); setDraft({}); refresh() } catch (e) { setFeedsError(errText(e)) }
         },
-        onEdit: async (action, url) => {
+        onEdit: async (action, url, extra = {}) => {
           setFeedsError('')
-          try { await rest('/feeds', { method: 'POST', body: { action, url } }); refresh() } catch (e) { setFeedsError(errText(e)) }
+          try {
+            await rest('/feeds', { method: 'POST', body: { action, url, ...extra } })
+            if (action === 'set') setEditing(null)
+            refresh()
+          } catch (e) { setFeedsError(errText(e)) }
         }
       })
     })
@@ -332,13 +385,13 @@ function DailyReadingPage () {
   if (list.isError) return jsx(ErrorState, { title: 'Daily reading is unavailable', description: errText(list.error) })
   if (list.isLoading || (day && digest.isLoading)) return jsx(GlyphSpinner, {})
   const data = digest.data || null
-  const run = { running: !!list.data?.run?.running, notice: runNotice || (list.data?.run?.last?.message ? '' : '') }
+  const run = { running: running || !!list.data?.run?.running, notice: runNotice }
   return jsx(ScrollArea, {
     children: jsxs('div', {
       children: [
         jsx(DigestView, {
           digest: data, dates: list.data?.dates || [], selected: day, run, itemProps,
-          audioSlot: data && !data.audio?.failed ? jsx(AudioPlayer, { day, count: data.audio?.count || 0 }) : null,
+          audioSlot: data && !data.audio?.failed ? jsx(AudioPlayer, { day, count: data.audio?.count || 0 }, `${day}-${data.generation}`) : null,
           onSelect: setSelected, onRun, onShowFeeds: () => setView('feeds')
         }),
         jsx(IdeaDialog, {

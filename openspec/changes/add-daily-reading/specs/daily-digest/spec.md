@@ -54,7 +54,7 @@ Only one run SHALL build a digest at a time per profile. A run from the CLI, the
 
 ### Requirement: Safe fetching
 
-Feeds SHALL be fetched with plain HTTP GET, never through a shell or proxy. Only `http`/`https` to hosts whose every resolved address is public SHALL be contacted, connecting to the checked address; each redirect (at most 5) is checked again. Each feed has a timeout (`fetch_timeout_s`, default 15, range 1–60) and a body cap (`max_feed_bytes`, default 2 MiB, range 64 KiB–10 MiB).
+Feeds SHALL be fetched with plain HTTP GET, never through a shell or proxy. Only `http`/`https` to hosts whose every resolved address is public SHALL be contacted, connecting to the checked address; each redirect (at most 5) is checked again. Each feed has a timeout (`fetch_timeout_s`, default 15, range 1–60) and a body cap (`max_feed_bytes`, default 2 MiB, range 64 KiB–10 MiB). The User-Agent is `hermes-daily-reading/<version>` unless `user_agent` (one line, up to 300 characters) is set.
 
 #### Scenario: Private address refused
 
@@ -318,13 +318,19 @@ The model SHALL write, in `language` (default `en`), an introduction and one par
 
 ### Requirement: Audio
 
-The text read aloud SHALL be the introduction then the item paragraphs. It goes to Hermes' `text_to_speech` tool in one call, using the user's provider and voice. Every returned file is stored with the digest in order, as one playlist, with the reported provider. A failure keeps the digest without audio, recorded as "audio failed". No summary means no audio.
+The text read aloud SHALL be the introduction then the item paragraphs, sent to Hermes' `text_to_speech` tool with the user's provider and voice, one call per segment of at most 1500 characters split at paragraph breaks. The returned files are stored with the digest in reading order, with the reported provider. A failure keeps the digest without audio, recorded as "audio failed" with the tool's error. No summary means no audio.
 
 #### Scenario: Audio made
 
 - **GIVEN** a summary was written
 - **WHEN** the digest is built
-- **THEN** `text_to_speech` is called once with the introduction and paragraphs, and the digest records the stored audio file and the provider the tool reported
+- **THEN** `text_to_speech` is called once with the introduction and paragraphs (they fit in one segment), and the digest records the stored audio file and the provider the tool reported
+
+#### Scenario: Long summary goes in segments
+
+- **GIVEN** a summary of about 750 words
+- **WHEN** the audio is made
+- **THEN** `text_to_speech` is called once per segment, each at most 1500 characters, in reading order, and the files are stored in that order
 
 #### Scenario: Audio in several files
 

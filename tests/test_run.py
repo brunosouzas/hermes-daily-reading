@@ -55,10 +55,46 @@ def test_forced_run(env):
     assert [i["link"] for i in forced.digest["items"]] == [i["link"] for i in first.digest["items"]]
     store = Store(settings.data_dir)
     assert store.load(forced.date)["generation"] == forced.digest["generation"]
-    assert len([p for p in (store.digests / forced.date).iterdir() if p.is_dir()]) == 1
+    folders = lambda: sorted(p.name for p in (store.digests / forced.date).iterdir() if p.is_dir())
+    assert folders() == sorted([first.digest["generation"], forced.digest["generation"]])  # kept for open pages
+    run(settings, feeds, now=NOW + timedelta(days=1))
+    assert folders() == [forced.digest["generation"]]
+
+
+def test_replacement_releases_items_only_the_old_digest_showed(tmp_path):
+    settings = make_settings(tmp_path)
+    write_feeds(settings.feeds_file, [{"url": "https://a.com/feed"}])
+    old_only = rss([{"title": "Only in the first build", "link": "https://a.com/old", "date": days_ago(0.5)}])
+    first = run(settings, FakeFeeds({"https://a.com/feed": old_only}))
+    store = Store(settings.data_dir)
+    assert "https://a.com/old" in store.shown_keys(first.date, 30)
+    other = rss([{"title": "Only in the forced build", "link": "https://a.com/new", "date": days_ago(0.4)}])
+    run(settings, FakeFeeds({"https://a.com/feed": other}), force=True, now=NOW + timedelta(hours=1))
+    keys = store.shown_keys(first.date, 30)
+    assert "https://a.com/old" not in keys and "https://a.com/new" in keys
 
 
 STEPS = ["fetched", "ranked", "summarised", "audio", "digest-written", "records-written"]
+
+
+def test_forced_run_stopped_right_after_publication(tmp_path):
+    settings = make_settings(tmp_path)
+    write_feeds(settings.feeds_file, [{"url": "https://a.com/feed"}])
+    feeds = FakeFeeds({"https://a.com/feed": feed_body("a", 2)})
+    run(settings, feeds)
+    ctx = multiprocessing.get_context("fork")
+    child = ctx.Process(target=_interrupted_child, args=(tmp_path, "published", ctx.Queue()))
+    child.start()
+    child.join(30)
+    assert child.exitcode == -signal.SIGKILL
+    store = Store(settings.data_dir)
+    day = (NOW + timedelta(hours=1)).astimezone().date().isoformat()
+    new = store.load(day)
+    assert new is not None and len(new["items"]) == 3  # the new digest is the published one
+    assert {i["link"] for i in new["items"]} <= store.shown_keys(day, 30)
+    later = run(settings, feeds, now=NOW + timedelta(days=1))
+    assert later.status == "built"
+    assert sorted(p.name for p in (store.digests / day).iterdir() if p.is_dir()) == [new["generation"]]
 
 
 def _interrupted_child(settings_home, step, queue):

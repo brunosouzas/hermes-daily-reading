@@ -125,24 +125,74 @@ class Audio:
     reason: str = ""
 
 
+SEGMENT_CHARS = 1500
+
+
+def audio_segments(text: str, limit: int = SEGMENT_CHARS) -> List[str]:
+    """Split the spoken text at paragraph breaks into segments of at most ``limit`` characters.
+
+    Hermes refuses a TTS file over its per-file delivery limit (10 MiB by default), and an
+    uncompressed voice reaches that in about four minutes, so the text goes in short pieces.
+    A paragraph longer than ``limit`` is its own segment (Hermes splits it again if needed).
+    """
+    segments: List[str] = []
+    current = ""
+    for paragraph in [p.strip() for p in text.split("\n\n") if p.strip()]:
+        candidate = f"{current}\n\n{paragraph}" if current else paragraph
+        if current and len(candidate) > limit:
+            segments.append(current)
+            current = paragraph
+        else:
+            current = candidate
+    if current:
+        segments.append(current)
+    return segments
+
+
+def _tts_error(result: Any) -> str:
+    message = result.get("error") if isinstance(result, dict) else None
+    message = " ".join(str(message).split())[:200] if message else ""
+    return f"text_to_speech returned an error: {message}" if message else "text_to_speech returned an error"
+
+
+def _remove(folder: Path, names: List[str]) -> None:
+    for name in names:
+        try:
+            (folder / name).unlink()
+        except OSError:
+            pass
+
+
 def make_audio(text: str, folder: Path, dispatch: Callable[[str, Dict[str, Any]], str]) -> Audio:
-    """Call ``text_to_speech`` once and move every returned file into the digest folder."""
-    try:
-        raw = dispatch("text_to_speech", {"text": text})
-        result = json.loads(raw) if isinstance(raw, str) else raw
-    except Exception as exc:
-        return Audio(failed=True, reason=type(exc).__name__)
-    if not isinstance(result, dict) or result.get("success") is False or result.get("error"):
-        return Audio(failed=True, reason="text_to_speech returned an error")
-    paths = result.get("file_paths") or ([result["file_path"]] if result.get("file_path") else [])
-    if not isinstance(paths, list) or not paths:
-        return Audio(failed=True, reason="text_to_speech returned no file")
+    """Call ``text_to_speech`` once per segment and move every returned file, in order, into the digest folder."""
     files: List[str] = []
-    for index, source in enumerate(paths, 1):
-        src = Path(str(source))
-        if not src.is_file():
-            return Audio(failed=True, reason="an audio file is missing")
-        name = f"audio-{index:02d}{src.suffix.lower() or '.audio'}"
-        shutil.copyfile(src, folder / name)
-        files.append(name)
-    return Audio(files=files, provider=str(result.get("provider") or ""))
+    provider = ""
+    for segment in audio_segments(text):
+        try:
+            raw = dispatch("text_to_speech", {"text": segment})
+            result = json.loads(raw) if isinstance(raw, str) else raw
+        except Exception as exc:
+            _remove(folder, files)
+            return Audio(failed=True, reason=type(exc).__name__)
+        if not isinstance(result, dict) or result.get("success") is False or result.get("error"):
+            _remove(folder, files)
+            return Audio(failed=True, reason=_tts_error(result))
+        paths = result.get("file_paths") or ([result["file_path"]] if result.get("file_path") else [])
+        if not isinstance(paths, list) or not paths:
+            _remove(folder, files)
+            return Audio(failed=True, reason="text_to_speech returned no file")
+        for source in paths:
+            src = Path(str(source))
+            name = f"audio-{len(files) + 1:02d}{src.suffix.lower() or '.audio'}"
+            try:
+                if not src.is_file():
+                    raise FileNotFoundError(name)
+                shutil.move(str(src), folder / name)
+            except OSError:
+                _remove(folder, files + [name])
+                return Audio(failed=True, reason="an audio file could not be stored")
+            files.append(name)
+        provider = provider or str(result.get("provider") or "")
+    if not files:
+        return Audio(failed=True, reason="no text to read")
+    return Audio(files=files, provider=provider)

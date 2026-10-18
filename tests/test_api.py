@@ -153,3 +153,61 @@ def test_page_run_builds_in_the_background(page):
     built = page["client"].get(f"{page['base']}/digest/{state['last']['date']}").json()  # the run uses today's real date
     titles = [i["title"] for i in built["items"]]
     assert "Fresh story from the page run" in titles
+
+
+HERMES = Path(os.path.expanduser(os.environ.get("HERMES_AGENT_DIR", "~/.hermes/hermes-agent")))
+
+
+def _hermes_python():
+    """Hermes' own interpreter: HERMES_PYTHON, else an installed Hermes environment that imports the dashboard."""
+    import glob
+    import subprocess
+
+    candidates = [os.environ["HERMES_PYTHON"]] if os.environ.get("HERMES_PYTHON") else sorted(
+        glob.glob(os.path.expanduser("~/.hermes/installs/*/environments/*/venv/bin/python")), key=os.path.getmtime,
+        reverse=True)
+    for python in candidates:
+        probe = subprocess.run([python, "-I", "-c", "import sys; sys.path.insert(0, sys.argv[1]); import fastapi, hermes_cli",
+                                str(HERMES)], capture_output=True, timeout=60)
+        if probe.returncode == 0:
+            return python
+    return None
+
+
+def _profile_home(root, name, enabled, digest_day=None):
+    import shutil
+    import subprocess
+
+    home = root / name
+    (home / "plugins").mkdir(parents=True)
+    os.symlink(Path(__file__).resolve().parent.parent, home / "plugins" / "daily-reading")
+    (home / "config.yaml").write_text("plugins:\n  enabled: [" + ("daily-reading" if enabled else "") + "]\n")
+    if digest_day:
+        folder = home / "daily-reading" / "digests" / digest_day / "g0123456789abcdef"
+        folder.mkdir(parents=True)
+        (folder / "digest.json").write_text(json.dumps({"date": digest_day, "generation": "g0123456789abcdef", "items": []}))
+        (folder.parent / "current").write_text("g0123456789abcdef")
+    return home
+
+
+@pytest.mark.skipif(not (HERMES / "hermes_cli" / "web_server.py").exists(), reason="Hermes checkout not found")
+def test_unauthenticated_disabled_or_other_profile(tmp_path):
+    import subprocess
+
+    python = _hermes_python()
+    if python is None:
+        pytest.skip("no Hermes Python environment found; set HERMES_PYTHON")
+    child = Path(__file__).resolve().parent / "hermes_boundary_child.py"
+
+    def probe(home):
+        out = subprocess.run([python, "-I", str(child), str(home), str(HERMES)], capture_output=True, text=True,
+                             timeout=180)
+        assert out.returncode == 0, out.stderr[-2000:]
+        return json.loads(out.stdout.strip().splitlines()[-1])
+
+    mine = probe(_profile_home(tmp_path, "mine", enabled=True, digest_day="2026-10-19"))
+    assert mine == {"anonymous": 401, "wrong_token": 401, "authed": 200, "latest": "2026-10-19"}
+    disabled = probe(_profile_home(tmp_path, "disabled", enabled=False, digest_day="2026-10-19"))
+    assert disabled["anonymous"] == 401 and disabled["authed"] == 404
+    other = probe(_profile_home(tmp_path, "other", enabled=True))  # its own data only
+    assert other["authed"] == 200 and other["latest"] is None

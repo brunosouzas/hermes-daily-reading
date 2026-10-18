@@ -126,3 +126,30 @@ test('register adds the page, the sidebar row and a palette command', () => {
   assert.deepEqual(seen.map(c => c.area), ['routes', 'sidebar-nav', 'palette'])
   assert.equal(seen[0].data.path, '/daily-reading')
 })
+
+test('Publication date, and a fragment with a note', () => {
+  const calls = []
+  const closed = render(ItemCard({ item: item({ published: '2026-10-18T07:30:00+00:00' }), actions: enabled, onNote: (i, v) => calls.push(['note', v]) }))
+  assert.equal(textOf(byRole(closed, 'published')), '2026-10-18 07:30 UTC')
+  byAction(closed, 'fragment')[0].props.onClick()
+  assert.deepEqual(calls, [['note', '']])
+  const open = render(ItemCard({ item: item(), actions: enabled, note: 'good example', onFragment: (i, n) => calls.push(['save', n]), onNote: (i, v) => calls.push(['note', v]) }))
+  assert.equal(byRole(open, 'note')[0].props.value, 'good example')
+  byAction(open, 'fragment-save')[0].props.onClick()
+  byAction(open, 'fragment-cancel')[0].props.onClick()
+  assert.deepEqual(calls.slice(1), [['save', 'good example'], ['note', null]])
+})
+
+test('Feeds page edits a feed and pauses another', () => {
+  const { FeedsView } = page
+  const feeds = [{ url: 'https://a.com/feed', theme: 'ai', title: '', paused: false }, { url: 'https://b.com/rss', theme: '', title: 'B', paused: true }]
+  const calls = []
+  const tree = render(FeedsView({ feeds, editing: { url: 'https://a.com/feed', theme: 'architecture', title: 'A' }, onEdit: (...a) => calls.push(a), onEditing: e => calls.push(['editing', e]) }))
+  assert.equal(byRole(tree, 'edit-form').length, 1)
+  byAction(tree, 'edit-save')[0].props.onClick()
+  byAction(tree, 'resume')[0].props.onClick()
+  assert.deepEqual(calls, [['set', 'https://a.com/feed', { theme: 'architecture', title: 'A' }], ['resume', 'https://b.com/rss']])
+  assert.equal(textOf(byRole(tree, 'paused')), 'Paused')
+  const rejected = render(FeedsView({ feeds, error: 'url must start with http:// or https://' }))
+  assert.match(textOf(byRole(rejected, 'feeds-error')), /http/)
+})

@@ -15,9 +15,10 @@ import http.client
 import ipaddress
 import socket
 import ssl
+import threading
 import time
 from dataclasses import dataclass
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 from urllib.parse import urljoin, urlsplit
 
 MAX_REDIRECTS = 5
@@ -75,7 +76,20 @@ def _dial(ip: str, port: int, timeout: float) -> socket.socket:
     return socket.create_connection((ip, port), timeout=timeout)
 
 
-def validated_target(url: str) -> Tuple[str, str, int, List[str]]:
+def _resolve_within(host: str, port: int, deadline: Optional[float]) -> List[str]:
+    """Resolve in a helper thread so a slow resolver cannot outlast the feed's deadline."""
+    if deadline is None:
+        return _resolve_host(host, port)
+    box: dict = {}
+    worker = threading.Thread(target=lambda: box.setdefault("ips", _resolve_host(host, port)), daemon=True)
+    worker.start()
+    worker.join(max(0.0, deadline - time.monotonic()))
+    if worker.is_alive():
+        raise FetchError("timeout")
+    return box.get("ips", [])
+
+
+def validated_target(url: str, deadline: Optional[float] = None) -> Tuple[str, str, int, List[str]]:
     """(scheme, host, port, addresses) for a URL whose every address is public, or FetchError."""
     try:
         parts = urlsplit(url)
@@ -95,7 +109,7 @@ def validated_target(url: str) -> Tuple[str, str, int, List[str]]:
         ipaddress.ip_address(host.split("%", 1)[0])
         candidates = [host]
     except ValueError:
-        candidates = _resolve_host(host, port)
+        candidates = _resolve_within(host, port, deadline)
         if not candidates:
             raise FetchError("cannot resolve host") from None
     if any(ip_is_blocked(ip) for ip in candidates):
@@ -103,16 +117,49 @@ def validated_target(url: str) -> Tuple[str, str, int, List[str]]:
     return scheme, host, port, candidates
 
 
+class _Watchdog:
+    """Closes the connection when the feed's overall deadline passes, whatever it is waiting on."""
+
+    def __init__(self, deadline: float):
+        self.deadline = deadline
+        self.fired = False
+        self._conn: Optional[http.client.HTTPConnection] = None
+        self._timer: Optional[threading.Timer] = None
+
+    def arm(self, conn: http.client.HTTPConnection) -> None:
+        self._conn = conn
+        self._timer = threading.Timer(max(0.0, self.deadline - time.monotonic()), self._fire)
+        self._timer.daemon = True
+        self._timer.start()
+
+    def _fire(self) -> None:
+        self.fired = True
+        sock = getattr(self._conn, "sock", None)
+        if sock is not None:
+            try:
+                sock.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
+
+    def cancel(self) -> None:
+        if self._timer is not None:
+            self._timer.cancel()
+
+
 class _PinnedHTTPConnection(http.client.HTTPConnection):
     def __init__(self, host: str, port: int, addresses: List[str], timeout: float):
         super().__init__(host, port, timeout=timeout)
         self._addresses = addresses
+        self.deadline = time.monotonic() + timeout
 
     def connect(self) -> None:
         last: Exception = OSError("no address")
         for ip in self._addresses:
+            left = self.deadline - time.monotonic()
+            if left <= 0:
+                raise socket.timeout("deadline")
             try:
-                self.sock = _dial(ip, self.port, float(self.timeout or 15))
+                self.sock = _dial(ip, self.port, left)
                 return
             except OSError as exc:
                 last = exc
@@ -149,7 +196,7 @@ def fetch(url: str, *, timeout: float, max_bytes: int, user_agent: str,
     context = ssl_context or default_ssl_context()
     current = url
     for _hop in range(MAX_REDIRECTS + 1):
-        scheme, host, port, addresses = validated_target(current)
+        scheme, host, port, addresses = validated_target(current, deadline)
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             raise FetchError("timeout")
@@ -159,6 +206,8 @@ def fetch(url: str, *, timeout: float, max_bytes: int, user_agent: str,
             conn = _PinnedHTTPConnection(host, port, addresses, remaining)
         parts = urlsplit(current)
         target = (parts.path or "/") + (f"?{parts.query}" if parts.query else "")
+        watchdog = _Watchdog(deadline)
+        watchdog.arm(conn)
         try:
             conn.request("GET", target, headers={
                 "User-Agent": user_agent,
@@ -206,10 +255,11 @@ def fetch(url: str, *, timeout: float, max_bytes: int, user_agent: str,
         except (socket.timeout, TimeoutError):
             conn.close()
             raise FetchError("timeout") from None
-        except ssl.SSLError:
+        except (ssl.SSLError, OSError, http.client.HTTPException) as exc:
             conn.close()
-            raise FetchError("tls error") from None
-        except (OSError, http.client.HTTPException):
-            conn.close()
-            raise FetchError("network error") from None
+            if watchdog.fired or time.monotonic() >= deadline:
+                raise FetchError("timeout") from None
+            raise FetchError("tls error" if isinstance(exc, ssl.SSLError) else "network error") from None
+        finally:
+            watchdog.cancel()
     raise FetchError("too many redirects")

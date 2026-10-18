@@ -247,3 +247,33 @@ def test_command_cannot_start(page):
     result = confirm(page, preview(page).json()["token"]).json()
     assert result["state"] == "failed" and "could not start" in result["output"]
     assert get_digest(page)["items"][0]["idea"]["state"] == "failed"
+
+
+def test_older_preview_is_stale_after_another_was_sent(page):
+    log = _idea_command(page, RECORD)
+    first, second = preview(page).json(), preview(page).json()
+    assert first["warning"] == "" and second["warning"] == ""
+    assert confirm(page, first["token"]).json()["state"] == "sent"
+    response = confirm(page, second["token"]).json()
+    assert response["detail"]["code"] == "stale"
+    assert len(log.read_text().splitlines()) == 1
+    assert preview(page).json()["warning"].startswith("Already sent on")
+
+
+def test_command_output_that_is_not_utf8(page):
+    _idea_command(page, "sys.stdout.buffer.write(b'created \\xff\\xfe #9\\n')")
+    result = confirm(page, preview(page).json()["token"]).json()
+    assert result["state"] == "sent" and result["output"].startswith("created")
+
+
+def test_nul_in_an_argument(page):
+    _idea_command(page, RECORD)
+    s = page["settings"]()
+    store = Store(s.data_dir)
+    path = store.digest_dir(page["day"]) / "digest.json"
+    data = json.loads(path.read_text())
+    data["items"][0]["paragraph"] = "bad\x00text"
+    path.write_text(json.dumps(data))
+    result = confirm(page, preview(page).json()["token"]).json()
+    assert result == {"state": "failed", "output": "an argument contains a NUL character"}
+    assert get_digest(page)["items"][0]["idea"]["state"] == "failed"

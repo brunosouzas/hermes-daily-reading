@@ -29,7 +29,7 @@ Dispatch = Callable[[str, Dict[str, Any]], str]
 
 
 def default_fetcher(url: str, settings: Settings) -> FetchResult:
-    return fetch(url, timeout=settings.fetch_timeout_s, max_bytes=settings.max_feed_bytes, user_agent=USER_AGENT)
+    return fetch(url, timeout=settings.fetch_timeout_s, max_bytes=settings.max_feed_bytes, user_agent=settings.user_agent or USER_AGENT)
 
 
 @dataclass

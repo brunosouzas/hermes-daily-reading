@@ -171,3 +171,28 @@ def test_bad_urls(server, url):
     with pytest.raises(dr_fetch.FetchError):
         _fetch(url)
     assert server["dialled"] == []
+
+
+def test_slow_headers_hit_the_overall_deadline(server):
+    def drip(handler):
+        handler.wfile.write(b"HTTP/1.1 200 OK\r\n")
+        for i in range(40):
+            handler.wfile.write(f"X-Drip-{i}: x\r\n".encode())
+            handler.wfile.flush()
+            time.sleep(0.2)
+    server["routes"]["/drip"] = drip
+    started = time.monotonic()
+    with pytest.raises(dr_fetch.FetchError) as error:
+        _fetch(server["base"] + "/drip", timeout=1)
+    assert error.value.reason == "timeout" and time.monotonic() - started < 2.5
+
+
+def test_slow_resolver_hits_the_deadline(server, monkeypatch):
+    def slow(host, port):
+        time.sleep(3)
+        return [PUBLIC_IP]
+    monkeypatch.setattr(dr_fetch, "_resolve_host", slow)
+    started = time.monotonic()
+    with pytest.raises(dr_fetch.FetchError, match="timeout"):
+        _fetch("http://slow-dns.test/feed", timeout=1)
+    assert time.monotonic() - started < 2

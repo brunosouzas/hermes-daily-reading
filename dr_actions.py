@@ -170,6 +170,12 @@ def settle_interrupted(store: Store) -> None:
                 conn.execute("UPDATE idea_attempts SET state = 'unknown', finished = ? WHERE attempt = ?", (time.time(), attempt))
 
 
+def _last_attempt(conn, day: str, item_id: str) -> str:
+    row = conn.execute("SELECT attempt FROM idea_attempts WHERE date = ? AND item_id = ? ORDER BY started DESC LIMIT 1",
+                       (day, item_id)).fetchone()
+    return row[0] if row else ""
+
+
 def idea_state(store: Store, day: str, item_id: str) -> Optional[Dict[str, Any]]:
     with store.db() as conn:
         row = conn.execute("SELECT state, started, finished, output FROM idea_attempts WHERE date = ? AND item_id = ? "
@@ -188,8 +194,10 @@ def preview_idea(settings: Settings, store: Store, day: str, item_id: str) -> Di
     token = secrets.token_urlsafe(24)
     generation = store.current_generation(day) or ""
     with store.db() as conn:
+        # The preview is bound to the attempt history it warned about: any later attempt makes it stale.
+        last = _last_attempt(conn, day, item_id)
         conn.execute("INSERT INTO previews(token, date, item_id, digest_hash, payload_hash, created) VALUES (?, ?, ?, ?, ?, ?)",
-                     (token, day, item_id, generation, _hash(payload, _target(settings)), time.time()))
+                     (token, day, item_id, generation, _hash(payload, _target(settings), last), time.time()))
     previous = idea_state(store, day, item_id)
     warning = ""
     if previous and previous["state"] in ("sent", "unknown"):
@@ -222,7 +230,7 @@ def confirm_idea(settings: Settings, store: Store, token: str, now: Optional[flo
     except ActionError:
         raise ActionError("stale", "The digest changed; ask for a new preview") from None
     payload = _payload(item)
-    if (store.current_generation(day) or "") != digest_hash or _hash(payload, _target(settings)) != payload_hash:
+    if (store.current_generation(day) or "") != digest_hash:
         raise ActionError("stale", "The digest or the idea settings changed; ask for a new preview")
     settle_interrupted(store)
     attempt = secrets.token_hex(8)
@@ -237,10 +245,16 @@ def confirm_idea(settings: Settings, store: Store, token: str, now: Optional[flo
         if running:
             conn.execute("ROLLBACK")
             raise ActionError("in_progress", "An attempt for this item is already in progress")
+        if _hash(payload, _target(settings), _last_attempt(conn, day, item_id)) != payload_hash:
+            conn.execute("ROLLBACK")
+            raise ActionError("stale", "The item, the idea settings or its history changed; ask for a new preview")
         conn.execute("INSERT INTO idea_attempts(attempt, date, item_id, state, started, pid) VALUES (?, ?, ?, 'running', ?, ?)",
                      (attempt, day, item_id, now, os.getpid()))
         conn.execute("COMMIT")
-    state, output = _run_target(settings, item, day, payload)
+    try:
+        state, output = _run_target(settings, item, day, payload)
+    except Exception as exc:  # never leave an attempt running
+        state, output = "unknown", f"the attempt stopped unexpectedly ({type(exc).__name__})"
     with store.db() as conn:
         conn.execute("UPDATE idea_attempts SET state = ?, finished = ?, output = ? WHERE attempt = ?",
                      (state, time.time(), output, attempt))
@@ -260,9 +274,11 @@ def _run_target(settings: Settings, item: Dict[str, Any], day: str, payload: Dic
             return "failed", f"cannot write {path} ({type(exc).__name__})"
         return "sent", str(path)
     argv = [_substitute(a, payload) for a in ideas.command]
+    if any("\x00" in a for a in argv):
+        return "failed", "an argument contains a NUL character"
     try:
-        proc = subprocess.run(argv, shell=False, capture_output=True, text=True, timeout=COMMAND_TIMEOUT,
-                              stdin=subprocess.DEVNULL)
+        proc = subprocess.run(argv, shell=False, capture_output=True, text=True, encoding="utf-8", errors="replace",
+                              timeout=COMMAND_TIMEOUT, stdin=subprocess.DEVNULL)
     except subprocess.TimeoutExpired:
         return "unknown", f"the command did not finish within {int(COMMAND_TIMEOUT)} seconds and was stopped"
     except (FileNotFoundError, PermissionError, OSError) as exc:

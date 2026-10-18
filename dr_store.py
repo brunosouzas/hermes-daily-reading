@@ -53,6 +53,9 @@ CREATE TABLE IF NOT EXISTS previews (
 """
 
 
+GENERATION_RE = re.compile(r"^g[0-9a-f]{16}$")
+
+
 def valid_date(value: object) -> bool:
     if not isinstance(value, str) or not DATE_RE.match(value):
         return False
@@ -115,6 +118,12 @@ class Store:
             return None
         return value if GEN_RE.match(value) and (self._date_dir(day) / value).is_dir() else None
 
+    def generation_dir(self, day: str, generation: object) -> Optional[Path]:
+        """The folder of one generation, or None for a malformed name."""
+        if not isinstance(generation, str) or not GENERATION_RE.match(generation):
+            return None
+        return self._date_dir(day) / generation
+
     def digest_dir(self, day: str) -> Optional[Path]:
         generation = self.current_generation(day)
         return self._date_dir(day) / generation if generation else None
@@ -157,10 +166,11 @@ class Store:
         previous = self.current_generation(day)
         _atomic_write(self._date_dir(day) / "current", generation)
         _step(hook, "published")
-        if previous and previous != generation:  # the replaced digest: its records already stopped counting
+        if previous and previous != generation:
+            # The replaced digest's records already stopped counting; drop them. Its folder stays
+            # until the next run's recovery, so a page that is reading it can finish.
             with self.db() as conn:
                 conn.execute("DELETE FROM shown WHERE date = ? AND generation = ? AND retired = 0", (day, previous))
-            shutil.rmtree(self._date_dir(day) / previous, ignore_errors=True)
 
     def shown_keys(self, today: str, seen_days: int, exclude_generation: Optional[str] = None) -> Set[str]:
         since = (date.fromisoformat(today) - timedelta(days=seen_days)).isoformat()

@@ -91,6 +91,29 @@ def test_audio_made(tmp_path):
     assert audio["files"] == ["audio-01.wav"] and audio["provider"] == "kokoro-mlx"
 
 
+def test_long_summary_goes_in_segments(tmp_path):
+    from daily_reading.dr_summary import SEGMENT_CHARS, audio_segments
+
+    paragraphs = [f"Paragraph {n}. " + "word " * 120 for n in range(9)]  # about 600 characters each
+    text = "\n\n".join(paragraphs)
+    segments = audio_segments(text)
+    assert len(segments) > 1 and all(len(s) <= SEGMENT_CHARS for s in segments)
+    assert "\n\n".join(segments).split() == text.split()  # nothing lost, order kept
+    folder = tmp_path / "digest"
+    folder.mkdir()
+    tts = RecordingTTS(tmp_path / "tts", files=1)
+    audio = make_audio(text, folder, tts)
+    assert len(tts.calls) == len(segments) and [c["args"]["text"] for c in tts.calls] == segments
+    assert audio.files == [f"audio-{i:02d}.wav" for i in range(1, len(segments) + 1)]
+
+
+def test_tts_error_message_is_kept(tmp_path):
+    def failing(name, args):
+        return json.dumps({"success": False, "error": "Final-encoded TTS chunk exceeds default delivery limit"})
+    audio = make_audio("text", tmp_path, failing)
+    assert audio.failed and "delivery limit" in audio.reason
+
+
 def test_audio_in_several_files(tmp_path):
     folder = tmp_path / "digest"
     folder.mkdir()
@@ -108,3 +131,13 @@ def test_tts_fails(tmp_path):
     assert digest["intro"] and len(digest["items"]) == 2
     assert digest["audio"]["failed"] and digest["audio"]["files"] == []
     assert "audio failed" in result.message
+
+
+def test_audio_file_vanishes_before_it_is_stored(tmp_path):
+    settings, feeds = _setup(tmp_path, 2)
+
+    def vanishing(name, args):
+        return json.dumps({"success": True, "file_paths": [str(tmp_path / "gone.wav")], "provider": "x"})
+    result = dr_digest.run(settings, call_model=RecordingModel(), dispatch=vanishing, fetcher=feeds, now=NOW)
+    assert result.status == "built" and len(result.digest["items"]) == 2
+    assert result.digest["audio"]["failed"] and result.digest["audio"]["files"] == []

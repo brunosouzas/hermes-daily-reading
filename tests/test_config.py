@@ -37,3 +37,25 @@ def test_logs_stay_clean(tmp_path, caplog):
                                dispatch=RecordingTTS(tmp_path / "tts"), now=NOW)
     assert result.digest["intro"] == marker  # the text was really there
     assert caplog.records and all(marker not in r.getMessage() for r in caplog.records)
+
+
+def test_user_agent(tmp_path):
+    from daily_reading.dr_digest import USER_AGENT, default_fetcher
+
+    seen = {}
+    def fake_fetch(url, **kw):
+        seen.update(kw)
+        raise RuntimeError("stop")
+    import daily_reading.dr_digest as digest
+    original = digest.fetch
+    digest.fetch = fake_fetch
+    try:
+        for value, expected in (("", USER_AGENT), ("Mozilla/5.0 (reader)", "Mozilla/5.0 (reader)"), ("bad\nvalue", USER_AGENT)):
+            settings = make_settings(tmp_path, user_agent=value)
+            try:
+                default_fetcher("https://a.com/feed", settings)
+            except RuntimeError:
+                pass
+            assert seen["user_agent"] == expected
+    finally:
+        digest.fetch = original

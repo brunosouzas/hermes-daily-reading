@@ -52,3 +52,17 @@ def test_bad_and_future_dates():
     items = parse_feed(body, "https://a/feed", now=NOW)
     assert items[0].published is None and items[1].published is None
     assert items[2].published is not None
+
+
+def test_doctype_inside_cdata_is_text():
+    body = (b'<?xml version="1.0"?><rss version="2.0"><channel><item><title>Code sample</title>'
+            b'<link>https://a.com/1</link><description><![CDATA[<pre>&lt;!DOCTYPE html&gt;</pre> <!DOCTYPE html>]]>'
+            b'</description></item></channel></rss>')
+    [item] = parse_feed(body, "https://a.com/feed", now=NOW)  # GitHub's blog feed has code samples like this
+    assert item.title == "Code sample" and item.link == "https://a.com/1"
+
+
+def test_dtd_in_another_encoding_is_refused():
+    doc = '<?xml version="1.0" encoding="UTF-16"?><!DOCTYPE rss [<!ENTITY x "boom">]><rss><channel/></rss>'
+    with pytest.raises(ParseError, match="DTD"):
+        parse_feed(doc.encode("utf-16"), "https://x/feed", now=NOW)

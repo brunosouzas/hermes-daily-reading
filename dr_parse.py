@@ -11,6 +11,7 @@ from __future__ import annotations
 import html
 import re
 import xml.etree.ElementTree as ET
+from xml.parsers import expat
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
@@ -24,8 +25,45 @@ NS = {
 }
 _TAG_RE = re.compile(r"<[^>]*>")
 _WS_RE = re.compile(r"\s+")
-_DOCTYPE_RE = re.compile(rb"<!\s*(DOCTYPE|ENTITY)", re.IGNORECASE)
 MAX_TEXT_CHARS = 20000
+
+
+class _Refused(Exception):
+    pass
+
+
+def _refuse(*_args) -> None:
+    raise _Refused()
+
+
+def _qname(name: str) -> str:
+    return "{" + name if "}" in name else name
+
+
+def _parse_xml(data: bytes) -> ET.Element:
+    """Parse with expat, refusing any document type or entity declaration.
+
+    The check runs inside the parser, so markup that only looks like a DTD (for example
+    ``<!DOCTYPE html>`` in an escaped or CDATA code sample) stays ordinary text, and a real
+    declaration is refused in any encoding. Raises ``ET.ParseError`` for malformed XML.
+    """
+    builder = ET.TreeBuilder()
+    parser = expat.ParserCreate(namespace_separator="}")
+    parser.buffer_text = True
+    parser.StartDoctypeDeclHandler = _refuse
+    parser.EntityDeclHandler = _refuse
+    parser.UnparsedEntityDeclHandler = _refuse
+    parser.StartElementHandler = lambda name, attrs: builder.start(
+        _qname(name), {_qname(k): v for k, v in attrs.items()})
+    parser.EndElementHandler = lambda name: builder.end(_qname(name))
+    parser.CharacterDataHandler = builder.data
+    try:
+        parser.Parse(data, True)
+    except _Refused:
+        raise ParseError("declares a DTD or entity") from None
+    except expat.ExpatError as exc:
+        raise ET.ParseError(str(exc)) from None
+    return builder.close()
 
 
 class ParseError(Exception):
@@ -112,10 +150,8 @@ def _atom_link(entry: ET.Element) -> Optional[str]:
 def parse_feed(data: bytes, feed_url: str, now: Optional[datetime] = None) -> List[RawItem]:
     """Items of an RSS 2.0 or Atom 1.0 document. Raises ParseError for anything else."""
     now = now or datetime.now(timezone.utc)
-    if _DOCTYPE_RE.search(data[:65536]) or _DOCTYPE_RE.search(data):
-        raise ParseError("declares a DTD or entity")
     try:
-        root = ET.fromstring(data)
+        root = _parse_xml(data)
     except ET.ParseError:
         raise ParseError("not well-formed XML") from None
     tag = root.tag.rsplit("}", 1)[-1].lower()
