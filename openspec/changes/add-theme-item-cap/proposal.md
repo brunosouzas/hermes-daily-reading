@@ -11,8 +11,8 @@ The digest takes the top `max_items` by weighted theme total. When several feeds
 - Each ranked item gets a primary theme: the theme with the highest score × weight, ties going to the theme listed first. An item with total 0 has none and is never capped.
 - The cap is soft: items over their theme's cap are deferred, and deferred items fill the free slots, best first, when the other themes cannot fill them. A day with news on one theme only still gives a full digest.
 - The candidates sent to the model are chosen with the same idea, so one theme cannot fill the `max_rank_candidates` list either.
-- The digest records how many items the cap deferred.
-- With no cap configured (the default), the digest is built exactly as today.
+- Every digest records `ranking.theme_cap_left_out`: how many deferred items the fill did not use (0 without a cap), and the run log line includes it.
+- With no cap configured (the default), the digest holds the same items as today; the new key is the only addition to the stored digest, which readers ignore if they do not know it.
 
 ## Capabilities
 
@@ -39,7 +39,7 @@ None.
 - **Repetition and idempotency:** selection is deterministic for the same ranked items and settings; a forced rebuild with the same model answer gives the same digest.
 - **Concurrency:** n/a, selection runs inside the existing one-run-at-a-time lock and holds no state.
 - **Security:** n/a, no new input reaches the model, a shell or the page; only numbers from settings.
-- **Logs and observability:** the digest records the number of deferred items; the run log line gains that count. No feed text in logs.
+- **Logs and observability:** the digest records `ranking.theme_cap_left_out`; the run log line gains that count. No feed text in logs.
 
 ## Impact
 
