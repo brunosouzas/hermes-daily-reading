@@ -157,6 +157,8 @@ ideas:                                                 # runs a program, without
 
 In a command, `{title}`, `{url}`, `{summary}` and `{sources}` are replaced inside each argument and never split into new ones, so text from a feed cannot add arguments or reach a shell. The command gets 30 seconds; its first line of output is shown on the page. Exit code 0 is "sent", any other is "failed", and a timeout is "unknown".
 
+The page takes its colours from the Desktop theme. To adjust them, override `--dr-border`, `--dr-card`, `--dr-muted`, `--dr-danger` or `--dr-warning` on `.daily-reading-page` in your theme's custom CSS.
+
 ## What it reads, sends and writes
 
 **Reads:** the feeds file; the plugin settings in `config.yaml`; the feeds themselves.

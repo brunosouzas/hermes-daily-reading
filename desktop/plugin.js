@@ -412,26 +412,38 @@ function DailyReadingPage () {
   })
 }
 
+// Colours come from the Desktop's `--color-*` tokens (the plain shadcn names, then a neutral
+// value, as fallbacks), so the page follows the theme. A theme's custom CSS can override the
+// `--dr-*` variables on `.daily-reading-page`.
 const STYLE = `
-.${ID}-page{display:flex;flex-direction:column;gap:12px;padding:16px;max-width:860px}
+.${ID}-page{
+  --dr-muted:var(--color-muted-foreground,var(--muted-foreground,#8a8a8a));
+  --dr-border:var(--color-border,var(--border,rgba(128,128,128,.25)));
+  --dr-card:var(--color-card,var(--card,transparent));
+  --dr-danger:var(--color-destructive,var(--destructive,#d0393e));
+  --dr-warning:var(--color-warning,var(--warning,#b7791f));
+  display:flex;flex-direction:column;gap:12px;padding:16px;max-width:860px}
 .${ID}-toolbar,.${ID}-actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
-.${ID}-item{border-top:1px solid var(--border);padding:10px 0;display:flex;flex-direction:column;gap:6px}
+.${ID}-item{border-top:1px solid var(--dr-border);padding:10px 0;display:flex;flex-direction:column;gap:6px}
 .${ID}-read{opacity:.6}
 .${ID}-item-head{display:flex;gap:6px;align-items:baseline;font-weight:600}
-.${ID}-muted,.${ID}-hint{color:var(--muted-foreground);font-size:12px}
-.${ID}-error{color:var(--destructive,#c33);font-size:12px}
-.${ID}-warning{color:var(--warning,#b80);font-size:12px}
+.${ID}-muted,.${ID}-hint{color:var(--dr-muted);font-size:12px}
+.${ID}-error{color:var(--dr-danger);font-size:12px}
+.${ID}-warning{color:var(--dr-warning);font-size:12px}
 .${ID}-intro{font-size:15px;line-height:1.5}
-.${ID}-dialog{position:fixed;right:24px;bottom:24px;max-width:460px;background:var(--card);border:1px solid var(--border);border-radius:8px;padding:16px;display:flex;flex-direction:column;gap:6px;z-index:50}
+.${ID}-dialog{position:fixed;right:24px;bottom:24px;max-width:460px;background:var(--color-popover,var(--dr-card));border:1px solid var(--dr-border);border-radius:var(--radius-lg,8px);box-shadow:0 12px 32px rgba(0,0,0,.18);padding:16px;display:flex;flex-direction:column;gap:6px;z-index:50}
 .${ID}-feed{display:flex;gap:8px;align-items:center}
 `
 
 function ensureStyles () {
-  if (typeof document === 'undefined' || document.getElementById(`${ID}-style`)) return
-  const el = document.createElement('style')
-  el.id = `${ID}-style`
-  el.textContent = STYLE
-  document.head.appendChild(el)
+  if (typeof document === 'undefined') return
+  let el = document.getElementById(`${ID}-style`)
+  if (!el) {
+    el = document.createElement('style')
+    el.id = `${ID}-style`
+    document.head.appendChild(el)
+  }
+  el.textContent = STYLE // always the current rules: Desktop hot-reloads plugin.js without a page reload
 }
 
 export default {
