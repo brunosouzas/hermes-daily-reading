@@ -114,7 +114,7 @@ def select_capped(items: Sequence[T], primary_of: Callable[[T], Optional[str]], 
 
 
 def pick_for_ranking(candidates: Sequence[Candidate], themes: Sequence[Theme], limit: int,
-                     caps: Optional[Dict[str, int]] = None, max_items: int = 1) -> List[Candidate]:
+                     caps: Optional[Dict[str, int]] = None, max_items: Optional[int] = None) -> List[Candidate]:
     """Keyword total, then newest first; with caps, each capped theme gets a proportional quota
     (spec "Capped choice of ranking candidates") so one theme cannot fill the model's view."""
     keyed = [(-total(keyword_scores(c, themes), themes), newest_first_key(c), c) for c in candidates]
@@ -122,6 +122,8 @@ def pick_for_ranking(candidates: Sequence[Candidate], themes: Sequence[Theme], l
     ordered = [c for _, _, c in keyed]
     if not caps:
         return ordered[:limit]
+    if not max_items:  # without it the quota would silently disable the cap
+        raise ValueError("max_items is required when caps are given")
     quotas = {name: math.ceil(limit * cap / max_items) for name, cap in caps.items()}
     chosen, _ = select_capped(ordered, lambda c: primary_theme(keyword_scores(c, themes), themes), quotas, limit)
     return chosen
@@ -192,7 +194,7 @@ ModelCall = Callable[[str, str, Dict[str, Any]], Any]  # (instructions, input, s
 
 def rank(candidates: Sequence[Candidate], themes: Sequence[Theme], *, max_candidates: int,
          max_excerpt: int, call_model: Optional[ModelCall], caps: Optional[Dict[str, int]] = None,
-         max_items: int = 1) -> RankOutcome:
+         max_items: Optional[int] = None) -> RankOutcome:
     themes = [t for t in themes if t.weight > 0]
     if not themes:
         ordered = newest_first(candidates)

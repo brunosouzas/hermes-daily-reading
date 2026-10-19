@@ -154,7 +154,8 @@ def _build(settings: Settings, store: Store, feed_list: dr_feeds.FeedList, today
         "folder": str(folder), "feeds": outcomes, "feed_problems": feed_list.problems,
         "language": settings.language, "items": [], "intro": "", "summary_failed": False,
         "summary_trimmed": False, "audio": {"files": [], "provider": "", "failed": False},
-        "ranking": {"mode": "none", "keyword_items": 0, "theme_cap_left_out": 0}, "message": "", "settings_warnings": settings.warnings,
+        "ranking": {"mode": "none", "keyword_items": 0, "theme_cap_left_out": 0},
+        "message": "", "settings_warnings": settings.warnings,
     }
     if not feed_list.active:
         digest["message"] = "There are no active feeds."
