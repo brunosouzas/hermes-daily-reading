@@ -8,7 +8,7 @@ The digest takes the top `max_items` by weighted theme total. When several feeds
 
 - New setting `max_items_per_theme` (default 0 = no cap, range 0–30): the most digest items one theme may take.
 - New optional `max_items` on a theme entry (1–30), overriding `max_items_per_theme` for that theme.
-- Each ranked item gets a primary theme: the theme with the highest score × weight, ties going to the theme listed first. An item with total 0 has none and is never capped.
+- Each ranked item gets a primary theme: the theme with the highest score × weight, ties going to the theme listed first. An item with total 0 has none: it is never capped, and it comes after deferred items, as it does today.
 - The cap is soft: items over their theme's cap are deferred, and deferred items fill the free slots, best first, when the other themes cannot fill them. A day with news on one theme only still gives a full digest.
 - The candidates sent to the model are chosen with the same idea, so one theme cannot fill the `max_rank_candidates` list either.
 - Every digest records `ranking.theme_cap_left_out`: how many deferred items the fill did not use (0 without a cap), and the run log line includes it.
@@ -22,7 +22,7 @@ None.
 
 ### Modified Capabilities
 
-- `daily-digest`: theme cap settings, primary theme, capped digest selection, capped choice of ranking candidates; "Digest size" and "Model ranking" change to take the cap into account.
+- `daily-digest`: theme cap settings, primary theme, capped selection (digest and ranking candidates), the recorded count; "Theme scores", "Digest size" and "Model ranking" change to take the cap into account.
 
 ## Out of scope
 

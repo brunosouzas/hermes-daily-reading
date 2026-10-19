@@ -14,11 +14,11 @@ Setting `max_items_per_theme` (default 0, range 0–30) SHALL be the most digest
 
 - **GIVEN** `max_items_per_theme` 0, theme A with `max_items` 0, theme B with `max_items` "two", theme C with `max_items` true, theme D with `max_items` null
 - **WHEN** a run starts
-- **THEN** no theme has a cap, and one warning is logged naming each of A, B and C, none naming D
+- **THEN** no theme has a cap, and three warnings are logged, one per theme, naming A, B and C respectively; none names D
 
 ### Requirement: Primary theme
 
-An item's primary theme SHALL be the theme with the highest score times weight, using the scores the digest uses for it; on a tie, the theme listed first in `themes` wins. Themes with weight 0 take no part in ranking and are never primary. An item whose total is 0 SHALL have no primary theme and SHALL NOT count against any cap.
+For a given set of an item's theme scores, its primary theme SHALL be the theme with the highest score times weight; on a tie, the theme listed first in `themes` wins. Themes with weight 0 take no part and are never primary. An item whose weighted total is 0 SHALL have no primary theme. Digest selection uses the scores the digest uses for the item; candidate choice uses keyword scores.
 
 #### Scenario: Weighted primary theme
 
@@ -26,15 +26,19 @@ An item's primary theme SHALL be the theme with the highest score times weight, 
 - **WHEN** its primary theme is decided
 - **THEN** it is A (6 against 6 is a tie, and A is listed first)
 
-#### Scenario: Item with no theme
+### Requirement: Capped selection
+
+With at least one cap, selection SHALL run in two passes over items in a given order, up to a limit. First pass: take each item with a primary theme unless that theme already holds its cap (then defer it); set aside items with no primary theme; stop when the limit is reached. Second pass: fill free places with deferred items, then set-aside items, each in the given order. Chosen items keep the given order.
+
+#### Scenario: Item with no theme comes after deferred items
 
 - **GIVEN** `max_items` 3, `max_items_per_theme` 1, and ranked items A1, A2 (primary theme A), then Z1, Z2 (total 0)
 - **WHEN** the digest is built
-- **THEN** it holds A1, Z1 and Z2, and records 1 item left out
+- **THEN** it holds A1, A2 and Z1, and records 0 items left out
 
 ### Requirement: Capped digest selection
 
-With at least one cap, a first pass SHALL walk the ranked items, taking each one unless its primary theme already holds its cap (then the item is deferred), and stop as soon as `max_items` are taken. If fewer are taken, deferred items SHALL fill the free slots in ranked order. The digest lists the chosen items in ranked order, numbered from 1.
+With at least one cap, the digest SHALL be chosen by capped selection over the ranked items with limit `max_items`, numbered from 1 in ranked order.
 
 #### Scenario: Cap leaves room for another theme
 
@@ -68,7 +72,13 @@ With at least one cap, a first pass SHALL walk the ranked items, taking each one
 
 ### Requirement: Recording what the cap left out
 
-Every digest SHALL record `ranking.theme_cap_left_out`: the number of items deferred in the first pass that the fill did not use; 0 when no cap is set. The run log line SHALL include that number. With no cap, the digest's items are the same as before this change; the new key is the only difference.
+Every digest, including one with no items, SHALL record `ranking.theme_cap_left_out`: the number of items deferred by the digest selection that its second pass did not use; 0 when no cap is set. The run's log line SHALL include that number. With no cap, the digest's items are the same as before this change; the new key is the only difference.
+
+#### Scenario: Count in the log line
+
+- **GIVEN** a capped run where the digest selection leaves 1 item out
+- **WHEN** the run's logs are captured
+- **THEN** the digest-built log line carries the count 1 and no feed text
 
 #### Scenario: No cap set
 
@@ -76,9 +86,15 @@ Every digest SHALL record `ranking.theme_cap_left_out`: the number of items defe
 - **WHEN** the digest is built
 - **THEN** its items are the top `max_items` in ranked order and `ranking.theme_cap_left_out` is 0
 
+#### Scenario: Digest with no items
+
+- **GIVEN** a cap is set and every item was already shown
+- **WHEN** the digest is built
+- **THEN** it has no items and `ranking.theme_cap_left_out` is 0
+
 ### Requirement: Capped choice of ranking candidates
 
-With at least one cap, the candidates sent to the model SHALL be chosen by the same two passes over candidates ordered by keyword total then newest first, using keyword primary themes, a limit of `max_rank_candidates`, and per theme a quota of ceil(`max_rank_candidates` × cap ÷ `max_items`).
+With at least one cap, the candidates sent to the model SHALL be chosen by capped selection over candidates ordered by keyword total then newest first, with limit `max_rank_candidates`. Each theme with a cap gets a quota of ceil(`max_rank_candidates` × that theme's cap ÷ `max_items`), used in place of its cap; a theme without a cap has no quota.
 
 #### Scenario: One theme floods the candidates
 
@@ -86,13 +102,35 @@ With at least one cap, the candidates sent to the model SHALL be chosen by the s
 - **WHEN** the ranking request is built
 - **THEN** it holds the 3 B candidates and the 7 best A candidates
 
-#### Scenario: Candidates with no theme are not limited
+#### Scenario: Candidates with no theme come last
 
 - **GIVEN** `max_rank_candidates` 5, `max_items` 5, `max_items_per_theme` 1 (quota 1), candidates A1, A2, A3 matching theme A and Z1, Z2, Z3 with keyword total 0
 - **WHEN** the ranking request is built
-- **THEN** it holds A1, A2, Z1, Z2 and Z3
+- **THEN** it holds A1, A2, A3, Z1 and Z2
 
 ## MODIFIED Requirements
+
+### Requirement: Theme scores
+
+Setting `themes` SHALL be a list of `{name, keywords?, weight?, max_items?}` (weight default 1, range 0–10; `max_items` as in "Theme item caps"). A theme score is an integer 0–3. An item's total is the sum of theme scores times weights; equal totals keep the newest-first order. A theme scoring 2 or more is "matched". No usable themes, or all weights 0, means no ranking call and newest first.
+
+#### Scenario: Weighted total
+
+- **GIVEN** themes A (weight 2) and B (weight 1), item X scored A=3, item Y scored B=3
+- **WHEN** items are ordered
+- **THEN** X (total 6) comes before Y (total 3), X lists A as matched and Y lists B
+
+#### Scenario: Invalid theme entries
+
+- **GIVEN** themes with an empty name, two named `AI` and `ai`, and one whose `keywords` is a number
+- **WHEN** a run starts
+- **THEN** the empty-named theme is skipped, only the first of `AI`/`ai` is used, the third keeps its name with no keywords, and each problem is logged once naming the theme
+
+#### Scenario: No themes
+
+- **GIVEN** `themes` is empty
+- **WHEN** the digest is built
+- **THEN** items are newest first and no ranking request is sent to the model
 
 ### Requirement: Model ranking
 
