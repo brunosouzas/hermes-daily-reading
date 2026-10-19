@@ -20,6 +20,7 @@ MIB = 1024 * KIB
 # name -> (default, minimum, maximum) for integers
 INT_SETTINGS: Dict[str, tuple] = {
     "max_items": (8, 1, 30),
+    "max_items_per_theme": (0, 0, 30),  # 0 = no cap (spec "Theme item caps")
     "max_items_per_feed": (30, 1, 200),
     "max_feeds": (100, 1, 500),
     "max_age_days": (3, 1, 30),
@@ -33,6 +34,7 @@ INT_SETTINGS: Dict[str, tuple] = {
     "words_per_minute": (150, 80, 250),
 }
 SUMMARY_WORDS_RANGE = (100, 3000)
+THEME_MAX_ITEMS_RANGE = (1, 30)
 IDEA_TARGETS = ("none", "file", "command")
 
 
@@ -50,6 +52,7 @@ class Theme:
     name: str
     keywords: List[str] = field(default_factory=list)
     weight: float = 1.0
+    max_items: Optional[int] = None  # overrides max_items_per_theme for this theme
 
 
 @dataclass
@@ -92,6 +95,16 @@ class Settings:
     @property
     def ranking_themes(self) -> List[Theme]:
         return [t for t in self.themes if t.weight > 0]
+
+    def theme_caps(self) -> Dict[str, int]:
+        """Cap per ranking theme; a theme without one is absent. Empty means no capped selection."""
+        default = self.ints.get("max_items_per_theme", 0)
+        caps: Dict[str, int] = {}
+        for theme in self.ranking_themes:
+            cap = theme.max_items if theme.max_items is not None else default
+            if cap > 0:
+                caps[theme.name] = cap
+        return caps
 
 
 Getter = Callable[[str, Any], Any]
@@ -218,7 +231,13 @@ def _themes(value: Any, warn: Callable[[str, str], None]) -> List[Theme]:
         if isinstance(weight, bool) or not isinstance(weight, (int, float)) or not 0 <= weight <= 10:
             warn("themes", f"theme {name!r} weight is not 0-10, using 1")
             weight = 1
-        out.append(Theme(name=name, keywords=[k.strip() for k in keywords if k.strip()], weight=float(weight)))
+        max_items = entry.get("max_items")
+        if max_items is not None and (not _is_int(max_items) or not THEME_MAX_ITEMS_RANGE[0] <= max_items <= THEME_MAX_ITEMS_RANGE[1]):
+            warn("themes", f"theme {name!r} max_items is not {THEME_MAX_ITEMS_RANGE[0]}-{THEME_MAX_ITEMS_RANGE[1]}, "
+                           "using max_items_per_theme")
+            max_items = None
+        out.append(Theme(name=name, keywords=[k.strip() for k in keywords if k.strip()], weight=float(weight),
+                         max_items=max_items))
     return out
 
 

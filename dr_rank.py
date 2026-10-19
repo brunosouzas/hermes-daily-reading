@@ -1,11 +1,13 @@
-"""Theme scoring and ranking (spec daily-digest "Theme scores" … "Invalid ranking answers")."""
+"""Theme scoring, ranking and capped selection (spec daily-digest "Theme scores" … "Invalid ranking answers",
+"Primary theme", "Capped selection", "Capped choice of ranking candidates")."""
 
 from __future__ import annotations
 
 import json
+import math
 import re
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, TypeVar
 
 from .dr_config import Theme
 from .dr_items import Candidate, newest_first, newest_first_key
@@ -64,11 +66,67 @@ def total(scores: Dict[str, int], themes: Sequence[Theme]) -> float:
     return sum(scores.get(t.name, 0) * t.weight for t in themes)
 
 
-def pick_for_ranking(candidates: Sequence[Candidate], themes: Sequence[Theme], limit: int) -> List[Candidate]:
-    """Keyword total, then newest first."""
+def primary_theme(scores: Dict[str, int], themes: Sequence[Theme]) -> Optional[str]:
+    """Theme with the highest score x weight; ties go to the theme listed first; None when the total is 0.
+
+    Spec daily-digest "Primary theme". ``themes`` are the ranking themes (weight > 0), in settings order.
+    """
+    best_name, best_value = None, 0.0
+    for theme in themes:
+        value = scores.get(theme.name, 0) * theme.weight
+        if value > best_value:  # strictly greater: an equal later theme does not win the tie
+            best_name, best_value = theme.name, value
+    return best_name
+
+
+T = TypeVar("T")
+
+
+def select_capped(items: Sequence[T], primary_of: Callable[[T], Optional[str]], caps: Dict[str, int],
+                  limit: int) -> Tuple[List[T], int]:
+    """Two-pass capped selection (spec "Capped selection"); returns the chosen items in input order
+    and how many deferred items the second pass did not use.
+
+    First pass: take items with a primary theme until their theme holds its cap (later ones are
+    deferred); items with no primary theme are set aside; stop at ``limit``. Second pass: fill free
+    places with deferred items, then set-aside items. A theme absent from ``caps`` is never capped.
+    """
+    taken: List[int] = []
+    deferred: List[int] = []
+    set_aside: List[int] = []
+    counts: Dict[str, int] = {}
+    for index, item in enumerate(items):
+        if len(taken) >= limit:
+            break
+        theme = primary_of(item)
+        if theme is None:
+            set_aside.append(index)
+        elif theme in caps and counts.get(theme, 0) >= caps[theme]:
+            deferred.append(index)
+        else:
+            counts[theme] = counts.get(theme, 0) + 1
+            taken.append(index)
+    free = max(0, limit - len(taken))
+    used_deferred = deferred[:free]
+    free -= len(used_deferred)
+    chosen = sorted(taken + used_deferred + set_aside[:free])
+    return [items[i] for i in chosen], len(deferred) - len(used_deferred)
+
+
+def pick_for_ranking(candidates: Sequence[Candidate], themes: Sequence[Theme], limit: int,
+                     caps: Optional[Dict[str, int]] = None, max_items: Optional[int] = None) -> List[Candidate]:
+    """Keyword total, then newest first; with caps, each capped theme gets a proportional quota
+    (spec "Capped choice of ranking candidates") so one theme cannot fill the model's view."""
     keyed = [(-total(keyword_scores(c, themes), themes), newest_first_key(c), c) for c in candidates]
     keyed.sort(key=lambda t: (t[0], t[1]))
-    return [c for _, _, c in keyed[:limit]]
+    ordered = [c for _, _, c in keyed]
+    if not caps:
+        return ordered[:limit]
+    if not max_items:  # without it the quota would silently disable the cap
+        raise ValueError("max_items is required when caps are given")
+    quotas = {name: math.ceil(limit * cap / max_items) for name, cap in caps.items()}
+    chosen, _ = select_capped(ordered, lambda c: primary_theme(keyword_scores(c, themes), themes), quotas, limit)
+    return chosen
 
 
 def ranking_schema(themes: Sequence[Theme]) -> Dict[str, Any]:
@@ -135,12 +193,13 @@ ModelCall = Callable[[str, str, Dict[str, Any]], Any]  # (instructions, input, s
 
 
 def rank(candidates: Sequence[Candidate], themes: Sequence[Theme], *, max_candidates: int,
-         max_excerpt: int, call_model: Optional[ModelCall]) -> RankOutcome:
+         max_excerpt: int, call_model: Optional[ModelCall], caps: Optional[Dict[str, int]] = None,
+         max_items: Optional[int] = None) -> RankOutcome:
     themes = [t for t in themes if t.weight > 0]
     if not themes:
         ordered = newest_first(candidates)
         return RankOutcome([Ranked(c, {}, 0.0, []) for c in ordered], mode="none")
-    chosen = pick_for_ranking(candidates, themes, max_candidates)
+    chosen = pick_for_ranking(candidates, themes, max_candidates, caps=caps, max_items=max_items)
     answer: Any = None
     if call_model is not None and chosen:
         try:

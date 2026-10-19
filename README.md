@@ -91,7 +91,7 @@ The job's prompt only asks the agent to call `daily_reading_run`. The ranking an
 3. Groups the same story across feeds: same link (tracking parameters such as `utm_*`, `fbclid` and `gclid` ignored), same feed id, or the same long title. The first feed in your file wins for the title and the text; all feeds are listed as sources.
 4. Skips anything already shown in the last `seen_days` days.
 5. Ranks the rest: the model scores each item 0–3 against each theme, and the weighted total decides the order (newest first on a tie). If the model fails or answers badly, keyword matches on the title and text score instead. Without themes, items are just newest first.
-6. Keeps `max_items`, asks the model for the summary in `language`, sized to `audio_minutes × words_per_minute` words (or `summary_words`), and sends it to Hermes' `text_to_speech` tool in pieces of at most 1500 characters, split at paragraph breaks (an uncompressed voice such as Kokoro would otherwise pass Hermes' 10 MiB per-file limit). The pieces play in order on the page.
+6. Keeps `max_items`. With a theme cap (`max_items_per_theme` or a theme's `max_items`), each item counts under its primary theme (the one with the highest score × weight; on a tie, the theme listed first), and a theme takes at most its cap; the items it cannot take wait and fill any slots the other themes leave free, so a day with news on one theme only still gives a full digest. Items that match no theme come after those. The same rule, with a proportional quota per theme, picks the `max_rank_candidates` items the model sees. The digest records how many items the cap left out (`ranking.theme_cap_left_out`). It then asks the model for the summary in `language`, sized to `audio_minutes × words_per_minute` words (or `summary_words`), and sends it to Hermes' `text_to_speech` tool in pieces of at most 1500 characters, split at paragraph breaks (an uncompressed voice such as Kokoro would otherwise pass Hermes' 10 MiB per-file limit). The pieces play in order on the page.
 7. Publishes the digest. If the summary or the audio fails, the digest is still published with the items and the failure is reported.
 
 ## Settings
@@ -102,8 +102,9 @@ Set them in `config.yaml` under `plugins.entries.daily-reading.settings`, or wit
 |---|---|---|---|
 | `feeds_file` | `$HERMES_HOME/daily-reading/feeds.yaml` | path | The feeds file |
 | `language` | `en` | language code, e.g. `pt-BR` | Language of the summary and audio |
-| `themes` | `[]` | list of `{name, keywords, weight}` | What to rank by, see below |
+| `themes` | `[]` | list of `{name, keywords, weight, max_items}` | What to rank by, see below |
 | `max_items` | 8 | 1–30 | Items per digest |
+| `max_items_per_theme` | 0 (no cap) | 0–30 | Most digest items one theme may take; a theme's own `max_items` overrides it |
 | `audio_minutes` | 5 | 1–15 | Target audio length |
 | `words_per_minute` | 150 | 80–250 | Speaking rate used to size the summary; tune it to your voice |
 | `summary_words` | 0 | 0, or 100–3000 | Fixed summary length; 0 derives it from the audio length |
@@ -130,6 +131,7 @@ themes:
   - name: AI agents
     keywords: [agent, MCP, LLM]
     weight: 2
+    max_items: 3                                 # optional, 1-30; overrides max_items_per_theme
 ```
 
 ## The Daily reading page

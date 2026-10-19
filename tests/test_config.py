@@ -18,6 +18,24 @@ def test_out_of_range_and_wrong_type_settings(tmp_path, caplog):
     assert sum("max_items" in m for m in messages) == 1 and sum("language" in m for m in messages) == 1
 
 
+def test_theme_cap_override(tmp_path, caplog):
+    values = {"max_items_per_theme": 3, "themes": [{"name": "A", "max_items": 1}, {"name": "B"}]}
+    with caplog.at_level(logging.WARNING, logger="hermes.plugins.daily_reading"):
+        settings = load_settings(lambda k, d=None: values.get(k, d), home=tmp_path)
+    assert settings.theme_caps() == {"A": 1, "B": 3} and caplog.records == []
+
+
+def test_invalid_theme_cap(tmp_path, caplog):
+    values = {"max_items_per_theme": 0, "themes": [{"name": "A", "max_items": 0}, {"name": "B", "max_items": "two"},
+                                                   {"name": "C", "max_items": True}, {"name": "D", "max_items": None}]}
+    with caplog.at_level(logging.WARNING, logger="hermes.plugins.daily_reading"):
+        settings = load_settings(lambda k, d=None: values.get(k, d), home=tmp_path)
+    assert settings.theme_caps() == {}
+    messages = [r.getMessage() for r in caplog.records]
+    assert len(messages) == 3
+    assert [sum(f"'{name}'" in m for m in messages) for name in "ABCD"] == [1, 1, 1, 0]
+
+
 def test_missing_settings_are_silent(tmp_path, caplog):
     with caplog.at_level(logging.WARNING, logger="hermes.plugins.daily_reading"):
         settings = load_settings(lambda k, d=None: d, home=tmp_path)

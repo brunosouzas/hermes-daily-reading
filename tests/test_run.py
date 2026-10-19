@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import multiprocessing
 import os
 import signal
@@ -186,6 +187,47 @@ def test_all_items_already_shown(env):
     result = run(settings, feeds, call_model=model, dispatch=tts)
     assert result.digest["items"] == [] and "nothing new" in result.digest["message"]
     assert model.calls == [] and tts.calls == []
+
+
+def capped_env(tmp_path, **values):
+    """Ranked by keyword fallback: alpha 0, 1, 2 (newest first), then beta 0 (oldest)."""
+    values.setdefault("themes", [{"name": "alpha"}, {"name": "beta"}])
+    values.setdefault("max_items", 3)
+    settings = make_settings(tmp_path, **values)
+    write_feeds(settings.feeds_file, [{"url": "https://a.com/feed"}])
+    body = rss([{"title": f"alpha {i}", "link": f"https://a.com/{i}", "date": days_ago(0.1 + i / 10)} for i in range(3)]
+               + [{"title": "beta 0", "link": "https://a.com/b", "date": days_ago(0.9)}])
+    return settings, FakeFeeds({"https://a.com/feed": body})
+
+
+def test_capped_digest_recorded(tmp_path):
+    settings, feeds = capped_env(tmp_path, max_items_per_theme=2)
+    result = run(settings, feeds)
+    items = result.digest["items"]
+    assert [(i["number"], i["title"]) for i in items] == [(1, "alpha 0"), (2, "alpha 1"), (3, "beta 0")]
+    assert result.digest["ranking"]["theme_cap_left_out"] == 1
+
+
+def test_left_out_in_log_line(tmp_path, caplog):
+    settings, feeds = capped_env(tmp_path, max_items_per_theme=2)
+    with caplog.at_level(logging.INFO, logger="hermes.plugins.daily_reading"):
+        run(settings, feeds)
+    [line] = [r.getMessage() for r in caplog.records if "built with" in r.getMessage()]
+    assert "theme cap left out 1" in line and "alpha" not in line
+
+
+def test_no_cap_unchanged(tmp_path):
+    settings, feeds = capped_env(tmp_path)
+    result = run(settings, feeds)
+    assert [i["title"] for i in result.digest["items"]] == ["alpha 0", "alpha 1", "alpha 2"]
+    assert result.digest["ranking"]["theme_cap_left_out"] == 0
+
+
+def test_empty_digest_left_out_zero(tmp_path):
+    settings, feeds = capped_env(tmp_path, max_items_per_theme=1, max_items=8)
+    run(settings, feeds, now=NOW - timedelta(days=1))  # shows all four items
+    result = run(settings, feeds)
+    assert result.digest["items"] == [] and result.digest["ranking"]["theme_cap_left_out"] == 0
 
 
 def test_no_active_feeds(tmp_path):
