@@ -13,7 +13,7 @@ from .dr_config import Settings
 from .dr_fetch import FetchError, FetchResult, fetch
 from .dr_items import Candidate, group, newest_feed_items, select_candidates
 from .dr_parse import ParseError, parse_feed
-from .dr_rank import rank
+from .dr_rank import primary_theme, rank, select_capped
 from .dr_store import Store
 from .dr_summary import make_audio, make_summary
 
@@ -154,17 +154,27 @@ def _build(settings: Settings, store: Store, feed_list: dr_feeds.FeedList, today
         "folder": str(folder), "feeds": outcomes, "feed_problems": feed_list.problems,
         "language": settings.language, "items": [], "intro": "", "summary_failed": False,
         "summary_trimmed": False, "audio": {"files": [], "provider": "", "failed": False},
-        "ranking": {"mode": "none", "keyword_items": 0}, "message": "", "settings_warnings": settings.warnings,
+        "ranking": {"mode": "none", "keyword_items": 0, "theme_cap_left_out": 0}, "message": "", "settings_warnings": settings.warnings,
     }
     if not feed_list.active:
         digest["message"] = "There are no active feeds."
     elif not eligible:
         digest["message"] = "There is nothing new since the last digest."
     else:
+        caps = settings.theme_caps()
         outcome = rank(eligible, settings.themes, max_candidates=settings.max_rank_candidates,
-                       max_excerpt=settings.max_excerpt_chars, call_model=call_model)
-        selected = outcome.items[:settings.max_items]
-        digest["ranking"] = {"mode": outcome.mode, "keyword_items": outcome.keyword_items}
+                       max_excerpt=settings.max_excerpt_chars, call_model=call_model,
+                       caps=caps, max_items=settings.max_items)
+        left_out = 0
+        if caps and outcome.mode != "none":
+            # Spec "Capped digest selection": one theme cannot take every slot unless nothing else is left.
+            themes = settings.ranking_themes
+            selected, left_out = select_capped(outcome.items, lambda r: primary_theme(r.scores, themes),
+                                               caps, settings.max_items)
+        else:
+            selected = outcome.items[:settings.max_items]
+        digest["ranking"] = {"mode": outcome.mode, "keyword_items": outcome.keyword_items,
+                             "theme_cap_left_out": left_out}
         _step(hook, "ranked")
         summary = None
         if call_model is not None:
@@ -195,8 +205,8 @@ def _build(settings: Settings, store: Store, feed_list: dr_feeds.FeedList, today
     shown_keys = {key for item in digest["items"] for key in item["keys"]}
     store.publish(today, generation, digest, shown_keys, first_fetch, hook=hook)
     store.retain(settings.keep_digests)
-    logger.info("daily-reading: digest %s built with %d items (%d feeds, ranking %s)", today,
-                len(digest["items"]), len(outcomes), digest["ranking"]["mode"])
+    logger.info("daily-reading: digest %s built with %d items (%d feeds, ranking %s, theme cap left out %d)", today,
+                len(digest["items"]), len(outcomes), digest["ranking"]["mode"], digest["ranking"]["theme_cap_left_out"])
     return RunResult("built", today, digest)
 
 

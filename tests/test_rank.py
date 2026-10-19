@@ -7,7 +7,7 @@ import json
 from daily_reading.dr_config import Theme, load_settings
 from daily_reading.dr_items import Candidate
 from daily_reading.dr_rank import (UNTRUSTED_CLOSE, UNTRUSTED_OPEN, build_ranking_input, keyword_scores,
-                                   pick_for_ranking, rank)
+                                   pick_for_ranking, primary_theme, rank, select_capped)
 from helpers import RecordingModel, days_ago
 
 
@@ -129,3 +129,61 @@ def test_candidates_not_sent_still_compete():
     assert len(outcome.items) == 8
     assert sum(1 for r in outcome.items if r.by_keyword) == 3
     assert len(ids_in_request(model.calls[0]["input"])) == 5
+
+
+# Spec daily-digest "Primary theme", "Capped selection", "Capped digest selection",
+# "Capped choice of ranking candidates".
+
+def capped(names, cap, limit):
+    """names like 'A1' or 'Z1' (Z = no primary theme); one cap for themes A and B."""
+    chosen, left_out = select_capped(names, lambda n: None if n[0] == "Z" else n[0], {"A": cap, "B": cap}, limit)
+    return chosen, left_out
+
+
+def test_primary_theme_weighted_tie():
+    themes = [Theme("A", weight=3), Theme("B", weight=2)]
+    assert primary_theme({"A": 2, "B": 3}, themes) == "A"
+    assert primary_theme({"A": 0, "B": 1}, themes) == "B"
+    assert primary_theme({"A": 0, "B": 0}, themes) is None
+
+
+def test_cap_leaves_room():
+    assert capped(["A1", "A2", "A3", "B1"], cap=2, limit=3) == (["A1", "A2", "B1"], 1)
+
+
+def test_deferred_fills_free_slot():
+    assert capped(["A1", "A2", "A3", "B1"], cap=2, limit=4) == (["A1", "A2", "A3", "B1"], 0)
+
+
+def test_only_one_theme():
+    assert capped(["A1", "A2", "A3"], cap=1, limit=3) == (["A1", "A2", "A3"], 0)
+
+
+def test_cap_removes_item():
+    assert capped(["A1", "A2", "B1"], cap=1, limit=2) == (["A1", "B1"], 1)
+
+
+def test_full_before_cap():
+    assert capped(["A1", "B1", "A2"], cap=1, limit=2) == (["A1", "B1"], 0)
+
+
+def test_unthemed_after_deferred():
+    assert capped(["A1", "A2", "Z1", "Z2"], cap=1, limit=3) == (["A1", "A2", "Z1"], 0)
+
+
+def test_candidate_quota_flood():
+    themes = [Theme("alpha"), Theme("beta")]
+    alphas = [cand(i, title=f"alpha {i}", age=1 + i / 100) for i in range(20)]  # keyword total 3, newer first
+    betas = [cand(100 + i, title="other", summary=f"beta {i}", age=1 + i / 100) for i in range(3)]  # total 1
+    chosen = pick_for_ranking(alphas + betas, themes, 10, caps={"alpha": 2, "beta": 2}, max_items=5)
+    positions = [c.position for c in chosen]
+    assert len(chosen) == 10 and {100, 101, 102} <= set(positions)
+    assert sorted(p for p in positions if p < 100) == list(range(7))
+
+
+def test_candidates_without_theme_last():
+    themes = [Theme("alpha")]
+    alphas = [cand(i, title=f"alpha {i}", age=2 + i / 100) for i in range(3)]
+    others = [cand(10 + i, title=f"other {i}", age=1 + i / 100) for i in range(3)]  # newer, keyword total 0
+    chosen = pick_for_ranking(alphas + others, themes, 5, caps={"alpha": 1}, max_items=5)
+    assert [c.position for c in chosen] == [0, 1, 2, 10, 11]
