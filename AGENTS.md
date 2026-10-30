@@ -10,7 +10,7 @@ Stack: Python, Hermes plugin API, FastAPI (Hermes dashboard backend), Hermes Des
 Delivery: D this Mac
 Integration branch: `main`
 Trivial: none
-Deliver and verify: `hermes plugins update daily-reading`; a gateway restart only with Bruno around; verify with `hermes plugins list` (enabled, new revision) and the Daily reading page
+Deliver and verify: `hermes plugins update daily-reading`; a gateway restart only with Bruno around; verify with `hermes plugins check-updates` (Current is the merge commit, up to date) and `hermes plugins list` (enabled) and `hermes reading status`; settings come from hermes-personal `daily-reading/install.sh`, never `hermes plugins remove` (it drops them)
 
 - Plugin code (`__init__.py`, `dr_*.py`) runs inside Hermes and uses the standard library plus the PyYAML Hermes ships. Never add a runtime dependency.
 - `dashboard/plugin_api.py` is mounted by Hermes at `/api/plugins/daily-reading/`; it imports the plugin modules through its own package loader.
