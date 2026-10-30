@@ -7,6 +7,10 @@ A public Hermes Agent plugin: a daily reading digest from RSS/Atom feeds. It gro
 ## Technology declarations
 
 Stack: Python, Hermes plugin API, FastAPI (Hermes dashboard backend), Hermes Desktop plugin SDK (plain ESM)
+Delivery: D this Mac
+Integration branch: `main`
+Trivial: none
+Deliver and verify: `hermes plugins update daily-reading`; a gateway restart only with Bruno around; verify with `hermes plugins check-updates` (Current is the merge commit, up to date) and `hermes plugins list` (enabled) and `hermes reading status`; settings come from hermes-personal `daily-reading/install.sh`, never `hermes plugins remove` (it drops them)
 
 - Plugin code (`__init__.py`, `dr_*.py`) runs inside Hermes and uses the standard library plus the PyYAML Hermes ships. Never add a runtime dependency.
 - `dashboard/plugin_api.py` is mounted by Hermes at `/api/plugins/daily-reading/`; it imports the plugin modules through its own package loader.
@@ -16,7 +20,7 @@ Stack: Python, Hermes plugin API, FastAPI (Hermes dashboard backend), Hermes Des
 ## Rules
 
 - Repository language: English.
-- Board: Azure Boards `brunosouzas`, area `jarvis`; branches `ab<card>-<slug>`; pull requests end with `Fixes AB#<card>`; the owner merges.
+- Board: Azure Boards `brunosouzas`, area `jarvis`; branches `ab<card>-<slug>`; pull requests end with `Fixes AB#<card>`; pull requests from outside contributors are merged by the owner; the owner's own changes follow the gates of the kit's `engineering` playbook.
 - Specs live in `openspec/`; change behaviour through an OpenSpec change, and keep tests mapped to its scenarios.
 - Nothing personal in the code: feeds, themes, paths, schedule, language and commands come from settings or the feeds file. The owner's configuration lives in his private `hermes-personal` repository.
 - Feed content and model output are untrusted: keep them inside the marked untrusted blocks sent to the model, render them as text on the page, never pass them to a shell, and never write them to logs.
