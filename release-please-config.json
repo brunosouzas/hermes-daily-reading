@@ -12,6 +12,15 @@
         {
           "type": "generic",
           "path": "plugin.yaml"
+        },
+        {
+          "type": "json",
+          "path": "dashboard/manifest.json",
+          "jsonpath": "$.version"
+        },
+        {
+          "type": "generic",
+          "path": "dr_digest.py"
         }
       ]
     }
