@@ -1,0 +1,19 @@
+{
+  "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
+  "bootstrap-sha": "f4d538fd37cf99d75edd0973d492b393349b6b3c",
+  "packages": {
+    ".": {
+      "release-type": "python",
+      "include-component-in-tag": false,
+      "changelog-path": "CHANGELOG.md",
+      "bump-minor-pre-major": true,
+      "package-name": "hermes-daily-reading",
+      "extra-files": [
+        {
+          "type": "generic",
+          "path": "plugin.yaml"
+        }
+      ]
+    }
+  }
+}
