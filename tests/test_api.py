@@ -8,7 +8,7 @@ import os
 import sys
 import threading
 import time
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -140,7 +140,10 @@ def test_page_run_builds_in_the_background(page):
     api = page["api"]
     api.model_provider = lambda: RecordingModel()
     api.dispatch_provider = lambda: None
-    body = rss([{"title": "Fresh story from the page run", "link": "https://a.com/new", "date": days_ago(0.1)}])
+    # The page run uses the real clock (not NOW), so the story is dated from it: a date fixed relative to
+    # NOW falls out of max_age_days a few days after NOW and the run then finds nothing new.
+    fresh = datetime.now(timezone.utc) - timedelta(hours=1)
+    body = rss([{"title": "Fresh story from the page run", "link": "https://a.com/new", "date": fresh}])
     api.fetcher_provider = lambda: FakeFeeds({"https://a.com/feed": body})
     response = page["client"].post(f"{page['base']}/run", json={"force": True}).json()
     assert response == {"started": True, "status": "started"}

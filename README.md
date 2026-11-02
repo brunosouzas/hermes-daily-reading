@@ -185,8 +185,14 @@ Logs carry counts, feed URLs and failure reasons, never feed or model text.
 ```bash
 python3 -m venv .venv && .venv/bin/pip install pytest pyyaml fastapi httpx ruamel.yaml croniter
 .venv/bin/python -m pytest -q                                   # Python tests, offline
-node --import ./tests/desktop/register.mjs --test tests/desktop/ # page tests, no browser
+node --import ./tests/desktop/register.mjs --test 'tests/desktop/**/*.test.mjs' # page tests, no browser
 hermes plugins validate .
 ```
 
+GitHub Actions runs the Python and the page tests on every pull request (`.github/workflows/ci.yml`, Python 3.12); the two tests that need a local Hermes skip there.
+
 The feeds under `tests/fixtures/feeds/` were recorded from real sites with `tests/record_feeds.py`; tests never use the network. Two tests use a local Hermes when one is present and skip otherwise: `tests/test_blueprint.py` checks the blueprint with Hermes' own validator (checkout at `~/.hermes/hermes-agent`, or `HERMES_AGENT_DIR`), and `test_unauthenticated_disabled_or_other_profile` mounts Hermes' own dashboard app in Hermes' Python (found under `~/.hermes/installs/`, or `HERMES_PYTHON`) to check that the page's routes need the session token, disappear when the plugin is disabled, and only see their own profile.
+
+## Releases
+
+Versions follow [SemVer](https://semver.org/). [release-please](https://github.com/googleapis/release-please) reads the [Conventional Commits](https://www.conventionalcommits.org/) messages of the commits that reach `main` (with a squash merge, the squash commit's message): `feat:` makes a minor version, `fix:`, `perf:` and `revert:` a patch, and other types release nothing. It keeps a release pull request with the next version in `pyproject.toml`, `plugin.yaml`, `dashboard/manifest.json` and `dr_digest.py` and its `CHANGELOG.md` entry; merging it creates the tag `vX.Y.Z` and its GitHub release (`.github/workflows/release-pr.yml`).

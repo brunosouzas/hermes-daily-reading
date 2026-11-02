@@ -19,7 +19,7 @@ from .dr_summary import make_audio, make_summary
 
 logger = logging.getLogger("hermes.plugins.daily_reading")
 
-VERSION = "0.1.0"
+VERSION = "0.1.0"  # x-release-please-version
 USER_AGENT = f"hermes-daily-reading/{VERSION} (+https://github.com/brunosouzas/hermes-daily-reading)"
 RUN_WAIT_SECONDS = 120.0
 

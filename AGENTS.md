@@ -7,19 +7,24 @@ A public Hermes Agent plugin: a daily reading digest from RSS/Atom feeds. It gro
 ## Technology declarations
 
 Stack: Python, Hermes plugin API, FastAPI (Hermes dashboard backend), Hermes Desktop plugin SDK (plain ESM)
-Delivery: D this Mac
+Delivery: B package (Hermes plugin: `vX.Y.Z` tags and GitHub releases; Bruno's install follows `main`)
+Model: 2 release PR
 Integration branch: `main`
+Data: none
+Article: none
 Trivial: none
-Deliver and verify: `hermes plugins update daily-reading`; a gateway restart only with Bruno around; verify with `hermes plugins check-updates` (Current is the merge commit, up to date) and `hermes plugins list` (enabled) and `hermes reading status`; settings come from hermes-personal `daily-reading/install.sh`, never `hermes plugins remove` (it drops them)
+Deliver and verify: a merge updates the release pull request (release-please, `.github/workflows/release-pr.yml`); Bruno merges it, which makes the vX.Y.Z tag and GitHub release; the installation follows main: after every merge, `hermes plugins update daily-reading`; a gateway restart only with Bruno around; verify with `hermes plugins check-updates` (Current is the merge commit, up to date) and `hermes plugins list` (enabled) and `hermes reading status`; settings come from hermes-personal `daily-reading/install.sh`, never `hermes plugins remove` (it drops them)
 
 - Plugin code (`__init__.py`, `dr_*.py`) runs inside Hermes and uses the standard library plus the PyYAML Hermes ships. Never add a runtime dependency.
 - `dashboard/plugin_api.py` is mounted by Hermes at `/api/plugins/daily-reading/`; it imports the plugin modules through its own package loader.
 - `desktop/plugin.js` is uncompiled ESM: `jsx()` calls, not JSX syntax; only `@hermes/plugin-sdk`, `react` and `react/jsx-runtime` resolve. Views stay pure functions of their props so `tests/desktop/` can render them in Node.
-- Tests: `.venv/bin/python -m pytest -q` and `node --import ./tests/desktop/register.mjs --test tests/desktop/` (see README → Development); validation: `hermes plugins validate .` (delete `tests/__pycache__` first).
+- Tests: `.venv/bin/python -m pytest -q` and `node --import ./tests/desktop/register.mjs --test 'tests/desktop/**/*.test.mjs'` (see README → Development); validation: `hermes plugins validate .` (delete `tests/__pycache__` first). CI: `.github/workflows/ci.yml` runs both test suites on Python 3.12 on every pull request and on `main`.
 
 ## Rules
 
 - Repository language: English.
+- Commit messages and pull request titles are Conventional Commits: release-please releases feat, fix, perf and revert; other types release nothing.
+- Releases: only release-please makes a `v*` tag (when Bruno merges the release pull request). Never tag by hand, never edit the release pull request (release-please rewrites it), and never change the version in `pyproject.toml`, `plugin.yaml`, `dashboard/manifest.json` or `dr_digest.py` by hand.
 - Board: Azure Boards `brunosouzas`, area `jarvis`; branches `ab<card>-<slug>`; pull requests end with `Fixes AB#<card>`; pull requests from outside contributors are merged by the owner; the owner's own changes follow the gates of the kit's `engineering` playbook.
 - Specs live in `openspec/`; change behaviour through an OpenSpec change, and keep tests mapped to its scenarios.
 - Nothing personal in the code: feeds, themes, paths, schedule, language and commands come from settings or the feeds file. The owner's configuration lives in his private `hermes-personal` repository.

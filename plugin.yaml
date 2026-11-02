@@ -1,5 +1,5 @@
 name: daily-reading
-version: 0.1.0
+version: 0.1.0 # x-release-please-version
 manifest_version: 2
 api_version: 1
 description: "Daily reading digest from your RSS/Atom feeds: duplicates removed across feeds, ranked by your themes, summarised in your language and read aloud with your Hermes TTS voice; a Desktop page to read, save fragments and send article ideas. Runs on a schedule with Desktop closed."

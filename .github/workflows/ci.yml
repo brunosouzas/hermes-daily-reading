@@ -1,0 +1,50 @@
+name: CI
+
+# The Python tests and the Desktop page tests on every pull request and on main. Neither uses the
+# network or a real Hermes: the tests that need a local Hermes skip without one.
+#
+# Actions are pinned by commit SHA, with the tag in a comment.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24"
+          package-manager-cache: false
+
+      # The dev dependency group of pyproject.toml, as declared there. pip installs a dependency
+      # group from 25.1 (--group), so it is pinned first.
+      - name: Create the test environment
+        run: |
+          python -m venv .venv
+          .venv/bin/python -m pip install --disable-pip-version-check --upgrade 'pip==25.3'
+          .venv/bin/python -m pip install --disable-pip-version-check --group dev
+
+      - name: Python tests
+        run: .venv/bin/python -m pytest -q
+
+      - name: Desktop page tests
+        run: node --import ./tests/desktop/register.mjs --test 'tests/desktop/**/*.test.mjs'
